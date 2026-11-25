@@ -697,6 +697,7 @@ def api_geocode():
             return jsonify({'results': [
                 {'name': q, 'address': '坐标直通', 'lat': lat, 'lng': lng}],
                 'provider': 'coordinates'})
+    viewbox = request.args.get('viewbox') or ''
     amap_key = load_amap_key()
     if amap_key:
         try:
@@ -729,12 +730,16 @@ def api_geocode():
             logger.warning(f"amap search error: {exc}")
             return jsonify({'results': [], 'provider': 'amap',
                             'error': str(exc)})
-    # Nominatim 后端代理（服务器侧 UA，规避浏览器直连限制）
+    # Nominatim 后端代理（服务器侧 UA，规避浏览器直连限制）；
+    # 带当前地图视野偏置（viewbox），中文地名优先命中用户正在看的区域
     try:
+        params = {'q': q, 'format': 'json', 'limit': 6,
+                  'accept-language': 'zh-CN'}
+        if re.match(r'^-?\d+(?:\.\d+)?,-?-?\d+(?:\.\d+)?,'
+                    r'-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$', viewbox):
+            params['viewbox'] = viewbox  # lon1,lat1,lon2,lat2
         resp = requests.get(
-            NOMINATIM_SEARCH_URL,
-            params={'q': q, 'format': 'json', 'limit': 6,
-                    'accept-language': 'zh-CN'},
+            NOMINATIM_SEARCH_URL, params=params,
             headers={'User-Agent':
                      f'GeoPortCN/{APP_VERSION_NUMBER} (local-use tool)'},
             timeout=10)

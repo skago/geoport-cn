@@ -1929,7 +1929,7 @@ function showSearchResults(results, provider) {
     panel.innerHTML = '';
     var providerNote = {
         amap: '高德地图搜索结果',
-        nominatim: 'OSM 搜索（配置高德 key 可大幅提升中文搜索）',
+        nominatim: '按当前地图视野优先（OSM 数据）',
         coordinates: '坐标直通',
     }[provider] || '';
     if (providerNote) {
@@ -1970,7 +1970,14 @@ async function searchLocation(input) {
         }
     }
     try {
-        const resp = await fetch('/api/geocode?q=' + encodeURIComponent(query));
+        // 视野偏置：优先搜当前地图范围内的结果（中文地名准确度提升明显）
+        var activeMap0 = getActiveMap();
+        var b = activeMap0.getBounds();
+        var sw = toWgsCoords(b.getSouth(), b.getWest());
+        var ne = toWgsCoords(b.getNorth(), b.getEast());
+        var viewbox = sw.lng + ',' + sw.lat + ',' + ne.lng + ',' + ne.lat;
+        const resp = await fetch('/api/geocode?q=' + encodeURIComponent(query)
+            + '&viewbox=' + encodeURIComponent(viewbox));
         const data = await resp.json();
         if ((data.results || []).length === 1) {
             applySearchResult(data.results[0]);
@@ -1981,9 +1988,8 @@ async function searchLocation(input) {
         } else {
             var hint = data.provider === 'amap' && data.error
                 ? '高德搜索出错：' + data.error
-                : '未找到该地点。' + (data.provider === 'nominatim'
-                    ? '当前为 OSM 搜索（中文覆盖有限），配置高德 key 可获得高德地图同款搜索，见 README。'
-                    : '换个关键词试试，或直接输入"纬度, 经度"。');
+                : '未找到该地点。试试：① 换更通用的名称（如小区/地标名，门店类 POI 支持有限）'
+                  + '② 先把地图移到目标城市再搜 ③ 直接在地图上双击选点，或输入"纬度, 经度"。';
             alert(hint);
         }
     } catch (error) {
