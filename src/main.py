@@ -828,11 +828,21 @@ def connect_device():
         logger.info(f"No matching RSD entry found for udid: {udid} and connection type: {connection_type}")
 
 
-    # Check if developer mode is enabled, and enable it if not
-    #logger.info("Must be iOS17")
-    if not check_developer_mode(udid, connection_type):
+    # Developer-mode precheck: ONLY the legacy <17 path (developer disk
+    # image mount) actually requires Developer Mode. The iOS 17+ CoreDevice
+    # RSD tunnel does not — verified on iOS 27.2.1 with the toggle off:
+    # tunnel + location simulation work end to end. Skipping the check on
+    # 17+ also avoids false "developer_mode_required" prompts, because
+    # modern lockdownd no longer reports DeveloperStatus reliably.
+    requested_ios_version = data.get('ios_version')
+    legacy_path = (requested_ios_version is not None
+                   and not is_major_version_17_or_greater(requested_ios_version))
+    if legacy_path and not check_developer_mode(udid, connection_type):
         # Display modal to inform the user and give options
         return jsonify({'developer_mode_required': 'True'})
+    if not legacy_path:
+        logger.info("iOS 17+ path: skipping developer-mode precheck "
+                    "(RSD tunnel does not require it)")
 
     if connection_type == "USB":
         return connect_usb(data)
