@@ -33,7 +33,7 @@
 - `pyuac` 改为仅 Windows 导入（原在 macOS/Linux 上直接崩溃）
 
 ### 其他
-- 版本号/更新检查指向本 fork 仓库（`GITHUB_REPO = 'skago/geoport-enhanced'`）
+- 版本号/更新检查指向本 fork 仓库（`GITHUB_REPO = 'skago/geoport-cn'`）
 - `APP_VERSION_NUMBER` 对齐 `CURRENT_VERSION`（原 2.3.3 与 5.0.3 不一致导致误报更新）
 
 ## `src/templates/map.html`

@@ -1,5 +1,5 @@
 #!/bin/sh
-# GeoPort Enhanced launcher
+# GeoPort CN launcher
 # Creates .venv on first run, then starts the web UI.
 # Real device operations on macOS/Linux require sudo:  sudo ./start
 cd "$(dirname "$0")"

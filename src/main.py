@@ -113,11 +113,11 @@ sudo_message = ""
 captured_output = None
 # Update check / broadcast point to this fork's repo (falls back silently if unreachable).
 # Change this if you publish under a different GitHub path.
-GITHUB_REPO = 'skago/geoport-enhanced'
+GITHUB_REPO = 'skago/geoport-cn'
 CURRENT_VERSION_FILE = 'CURRENT_VERSION'
 BROADCAST_FILE = 'BROADCAST'
-APP_VERSION_NUMBER = "5.0.3-enhanced.1"
-APP_VERSION_TYPE = "enhanced"
+APP_VERSION_NUMBER = "5.0.3-cn.1"
+APP_VERSION_TYPE = "cn"
 terminate_tunnel_thread = False
 terminate_location_thread = False
 location_threads = []

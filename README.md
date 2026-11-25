@@ -1,9 +1,9 @@
-# GeoPort Enhanced
+# GeoPort CN · 国内直连版
 
-> 基于 [davesc63/GeoPort](https://github.com/davesc63/GeoPort) 的增强版：无需越狱的 iOS 定位模拟工具。
+> 基于 [davesc63/GeoPort](https://github.com/davesc63/GeoPort) 的国内优化版：无需越狱的 iOS 定位模拟工具。
 > Your Location, Anywhere!
 
-在原版基础上，增强版主要面向**中文用户 / 国内网络环境**，新增了国内地图源（含坐标纠偏）、历史记录与收藏等功能，并做了一系列安全与稳定性修复。
+**国内开箱即用，全程无需翻墙**：默认高德地图底图、依赖安装走国内镜像、外网请求全部后台化不阻塞界面。在原版基础上，GeoPort CN 面向**中文用户 / 国内网络环境**，新增了国内地图源（含坐标纠偏）、历史记录与收藏等功能，并做了一系列安全与稳定性修复。
 
 ## ✨ 相对上游的新特性
 
@@ -22,8 +22,8 @@
 依赖：Python 3.10+，真机操作需要 USB 连接 iPhone/iPad（首次需配对）。
 
 ```bash
-git clone https://github.com/skago/geoport-enhanced.git
-cd geoport-enhanced
+git clone https://github.com/skago/geoport-cn.git
+cd geoport-cn
 
 # 一键启动（首次运行自动创建虚拟环境并安装依赖）
 ./start
