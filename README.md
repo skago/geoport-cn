@@ -23,17 +23,31 @@
 
 ## 🚀 安装与运行
 
-依赖：Python 3.10+ 和一台 Mac；iPhone/iPad **首次**需用 USB 线连接一次完成配对，之后即可同 Wi-Fi 免线使用。
+iPhone/iPad **首次**需用 USB 线连接一次完成配对，之后即可同 Wi-Fi 免线使用。
 
-### 安装（一次搞定）
+### 方式一：独立版（推荐，无需 Python）
+
+到 [Releases](https://github.com/skago/geoport-cn/releases/latest) 下载
+`GeoPort-CN-mac-*.zip`，解压后把「GeoPort CN」拖入应用程序文件夹，双击即用。
+零依赖、零配置。
+
+### 方式二：源码版（开发者）
 
 ```bash
 git clone https://github.com/skago/geoport-cn.git
 cd geoport-cn
-open setup.command      # 等同于在 Finder 里双击 setup.command
+open setup.command      # 等同于在 Finder 里双击 setup.command（需 Python 3.10+）
 ```
 
 安装器会自动：检查 Python → 装依赖（国内镜像）→ 把「GeoPort CN.app」放进应用程序目录。
+
+<details>
+<summary>从源码构建独立版（维护者用）</summary>
+
+```bash
+./build.command    # 产出 dist/GeoPort CN.app + 发布用 zip
+```
+</details>
 
 ### 日常使用（只有一个动作）
 
