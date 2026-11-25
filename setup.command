@@ -28,13 +28,21 @@ else
     echo "✓ 依赖已就绪（.venv 存在，跳过）"
 fi
 
-# 3. 编译启动器到 /Applications
+# 3. 编译启动器到 /Applications（并套上应用图标）
+install_app() {
+    local target="$1"
+    osacompile -o "$target" scripts/launcher.applescript
+    if [ -f scripts/assets/app-icon.icns ]; then
+        cp scripts/assets/app-icon.icns "$target/Contents/Resources/applet.icns"
+        touch "$target"
+    fi
+}
 echo "→ 安装启动器到 /Applications ..."
-if osacompile -o "/Applications/$APP_NAME" scripts/launcher.applescript 2>/dev/null; then
+if install_app "/Applications/$APP_NAME" 2>/dev/null; then
     echo "✓ 已安装到 /Applications/$APP_NAME"
 else
     mkdir -p ~/Applications
-    osacompile -o "$HOME/Applications/$APP_NAME" scripts/launcher.applescript
+    install_app "$HOME/Applications/$APP_NAME"
     echo "✓ /Applications 无权限，已安装到 ~/Applications/$APP_NAME（个人应用目录）"
 fi
 

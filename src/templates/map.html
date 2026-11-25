@@ -634,7 +634,7 @@ if (appVersionType === "standard") {
 
 
     if (connectTextElement && rsdDataElement) {
-        rsdDataElement.style.display = connectTextElement.innerText === "Connected" ? 'block' : 'none';
+        rsdDataElement.style.display = connectTextElement.innerText === "已连接" ? 'block' : 'none';
     }
 
 
@@ -2274,6 +2274,28 @@ function handleKeyDown(event) {
 
 
 
+
+// 常见后端错误的中文映射（模拟定位工具的排错友好提示）
+function translateError(msg) {
+    if (!msg) return '未知错误';
+    var m = String(msg);
+    var map = [
+        ['No Devices Found', '未找到设备：请确认手机已用数据线连接并点了「信任」，然后点「刷新」'],
+        ['No Pair Record', '缺少配对记录：请先用 USB 线连接一次并点「信任」'],
+        ['developer_mode_required', '需要开启开发者模式（仅 iOS 16 及以下）'],
+        ['Device has a passcode set', '手机设置了锁屏密码：请先暂时关闭密码（设置 → 面容ID与密码）'],
+        ['Connection reset by peer', '连接被设备重置：点一次「停止模拟」再重试'],
+        ['timed out|timeout', '连接超时：换一根数据线或换个 USB 口，手机解锁后重试'],
+        ['tunnel', '隧道建立失败：重新插拔手机后点「连接设备」重试'],
+        ['sudo|Administrator', '权限不足：请通过「GeoPort CN.app」启动（需要管理员密码）'],
+        ['Port [0-9]+ was not distributed|connection refused', '服务未就绪或已停止，请稍候或重新启动应用'],
+    ];
+    for (var i = 0; i < map.length; i++) {
+        if (new RegExp(map[i][0], 'i').test(m)) return map[i][1];
+    }
+    return m;
+}
+
 function populateDeviceList() {
     var deviceDropdown = document.getElementById('device');
     var connectionDropdown = document.getElementById('connection');
@@ -2444,10 +2466,10 @@ function connectDevice() {
     updateDynamoDB(selectedDeviceIdentifier, selectedDeviceVersion, selectedDeviceName, selectedDeviceClass, selectedDevicePlatform, appVersionNum, appType, selectedDeviceConnType, SelectedDeviceWifiState, selectedDeviceCountry);
 
     if (connectTextElement) {
-        connectTextElement.innerText = "Connecting, please wait...";
+        connectTextElement.innerText = "正在连接，请稍候…";
     }
     // Hide the connectText and show the spinner only if not already connected
-    if (connectTextElement && spinnerElement && connectTextElement.innerText !== "Connected") {
+    if (connectTextElement && spinnerElement && connectTextElement.innerText !== "已连接") {
         connectTextElement.style.display = 'inline-block'; // Display the text
         spinnerElement.style.display = 'inline-block'; // Display the spinner
     }
@@ -2488,7 +2510,7 @@ function connectDevice() {
         // Check for the 'error' key in the response
         if ('error' in data) {
             // Display the error message as a popup or text on the page
-            //alert(data.error); // You can use a better UI method here
+            //alert(translateError(data.error)); // You can use a better UI method here
             showModalTimeout();
 
             // Reset connectTextElement
@@ -2513,14 +2535,14 @@ function connectDevice() {
         }
 
         if (connectTextElement) {
-            connectTextElement.innerText = "Connected";
+            connectTextElement.innerText = "已连接";
         }
 
         if (connectButton) {
             connectButton.disabled = true;  // Disable the button
         }
 
-        if (spinnerElement && connectTextElement.innerText === "Connected") {
+        if (spinnerElement && connectTextElement.innerText === "已连接") {
             spinnerElement.style.display = 'none'; // Hide the spinner
         }
 
@@ -2540,7 +2562,7 @@ function connectDevice() {
                     if ('rsd_data' in data) {
                         rsdDataElement.value = data.rsd_data;
 
-                        if (connectTextElement && connectTextElement.innerText === "Connected") {
+                        if (connectTextElement && connectTextElement.innerText === "已连接") {
                             //rsdDataElement.style.display = 'block';  // Make rsdData visible
                             updateSetLocationButtonStatus();
                             updateStopLocationButtonStatus();  // Add this line to update the Stop Location button status
@@ -2571,7 +2593,7 @@ function connectDevice() {
             }
 
             if (connectTextElement) {
-                connectTextElement.innerText = "Error connecting";
+                connectTextElement.innerText = "连接失败";
             }
 
             if (connectButton) {
@@ -2712,6 +2734,8 @@ function setLocationArrows() {
     }
 
 
+    var simulating = false;
+
     function setLocation() {
         fetch('/set_location', {
             method: 'POST',
@@ -2725,6 +2749,9 @@ function setLocationArrows() {
                 displayToast(data); // Display response as a toast
                 console.log('set_location response:', data);
                 refreshSavedLocations(); // 成功模拟后刷新历史记录
+                simulating = true;
+                var btn = document.getElementById('set-location');
+                if (btn) { btn.textContent = '模拟中…'; btn.disabled = true; }
             })
             .catch(error => {
                 console.error('Error setting location:', error);
@@ -2743,6 +2770,10 @@ function setLocationArrows() {
             .then(data => {
                 displayToast(data); // Display response as a toast
                 console.log('stop_location response:', data);
+                simulating = false;
+                var btn = document.getElementById('set-location');
+                if (btn) { btn.textContent = '模拟定位'; }
+                updateSetLocationButtonStatus();
             })
             .catch(error => {
                 console.error('Error stopping location:', error);
@@ -2944,7 +2975,8 @@ function setLocationArrows() {
         var rsdDataElement = document.getElementById('rsdData');
         var coordinatesInput = document.getElementById('coordinates');
         var enableButton = rsdDataElement.value.trim() !== '' && coordinatesInput.value.trim() !== '';
-        setLocationButton.disabled = !enableButton;
+        setLocationButton.disabled = !enableButton || simulating;
+        if (simulating) setLocationButton.textContent = '模拟中…';
     }
 
     // Function to enable or disable the Stop Location button based on conditions
@@ -3070,14 +3102,14 @@ function continueAfterDeveloperModeRequired() {
             connectDevice();
         } else if (data.error) {
             // Handle the error, e.g., display an alert or take appropriate action
-            //alert(data.error);
+            //alert(translateError(data.error));
             showAlertOrModal(data.error);
         }
     })
     .catch(error => {
         console.error('Error enabling developer mode:', error);
         // Handle the error, e.g., display an alert or take appropriate action
-        //alert('Error enabling developer mode.');
+        //alert(translateError('developer mode failed'));
         showAlertOrModal('Error enabling developer mode.');
     });
 }
@@ -3123,7 +3155,7 @@ function continueAfterDeveloperModeRequired() {
         var developerErrorModal = document.getElementById('developerError');
         if (developerErrorModal) {
             // Set the error message in the modal
-            document.getElementById('developerErrorMessage').innerText = errorMessage;
+            document.getElementById('developerErrorMessage').innerText = translateError(errorMessage);
             // Show the modal
             $('#developerError').modal('show');
         } else {
@@ -3156,6 +3188,24 @@ function continueAfterDeveloperModeRequired() {
     console.log("listener loaded");
 
     document.getElementById('search').addEventListener('click', handleSearch);
+
+        // 设备自动发现：未连接时每 8 秒检查一次，设备数变化才刷新下拉
+        setInterval(function () {
+            var connectText = document.getElementById('connectText');
+            if (!connectText || connectText.innerText !== '连接设备') return;
+            fetch('/list_devices')
+                .then(r => r.json())
+                .then(data => {
+                    var n = 0;
+                    Object.keys(data).forEach(function (u) {
+                        Object.keys(data[u]).forEach(function (c) { n += data[u][c].length; });
+                    });
+                    var cur = document.getElementById('device').options.length;
+                    if (n !== cur) populateDeviceList();
+                })
+                .catch(function () {});
+        }, 8000);
+
 
 
 
