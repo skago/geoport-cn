@@ -41,7 +41,7 @@ on run
 			return
 		end try
 		-- 等服务就绪（最多 30 秒）并打开页面
-		repeat with i from 1 to 30
+		repeat with i from 1 to 45
 			delay 1
 			try
 				set readyPort to my servingPort()
