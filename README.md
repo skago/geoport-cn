@@ -19,25 +19,25 @@
 
 ## 🚀 安装与运行
 
-依赖：Python 3.10+，真机操作需要 USB 连接 iPhone/iPad（首次需配对）。
+依赖：Python 3.10+ 和一台 Mac；真机操作需要 USB 连接 iPhone/iPad（首次需配对）。
 
-### 方式一：双击启动（macOS，推荐）
-
-首次安装（一次性，两条命令装依赖 + 编译启动器）：
+### 安装（一次搞定）
 
 ```bash
 git clone https://github.com/skago/geoport-cn.git
 cd geoport-cn
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
-# 国内网络可加清华镜像：-i https://pypi.tuna.tsinghua.edu.cn/simple
-osacompile -o ~/Applications/GeoPort\ CN.app scripts/launcher.applescript
+双击 setup.command      # 或终端运行 ./setup.command
 ```
 
-之后的使用就一个动作：**双击「GeoPort CN.app」**（启动台/Finder 应用程序目录，支持 Spotlight 搜索）→
-系统弹密码框（USB 设备操作需要管理员权限）→ 输密码 → 服务后台启动并自动打开浏览器。
-再次双击可选择「打开页面」或「停止服务」。手机保持 USB 连接即可。
+安装器会自动：检查 Python → 装依赖（国内镜像）→ 把「GeoPort CN.app」放进应用程序目录。
 
-### 方式二：终端启动
+### 日常使用（只有一个动作）
+
+**双击「GeoPort CN.app」**（启动台 / Spotlight 搜 "GeoPort"）→ 系统弹密码框
+（USB 设备操作需要管理员权限）→ 输密码 → 服务后台启动，浏览器自动打开。
+再次双击可选择「打开页面」或「停止服务」。手机保持 USB 连接。
+
+### 终端方式（调试用）
 
 ```bash
 cd geoport-cn
@@ -48,13 +48,7 @@ sudo ./start          # 真机定位模拟需要 root
 然后浏览器打开 `http://localhost:54321`。
 
 <details>
-<summary>手动安装 / 常用参数</summary>
-
-```bash
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt   # 国内可加 -i https://pypi.tuna.tsinghua.edu.cn/simple
-./.venv/bin/python src/main.py --no-browser --port 54329
-```
+<summary>常用参数</summary>
 
 | 参数 | 说明 |
 |---|---|
@@ -66,7 +60,26 @@ python3 -m venv .venv
 
 </details>
 
-数据文件（历史/收藏）保存在 `~/GeoPort/saved_locations.json`。
+数据文件：历史/收藏在 `~/GeoPort/saved_locations.json`；服务日志在 `~/GeoPort/logs/geoport-cn.log`。
+
+## 🔐 隐私说明
+
+- **所有位置数据只存在你自己的电脑上**（`~/GeoPort/`），无遥测、无账号、无上传
+- 启动时会访问 GitHub 检查版本更新（匿名，失败静默不影响使用）
+- 首次打开页面会做**一次** IP 归属地查询（仅用于地图初始定位，进程内缓存，之后不再查询）
+- Web 界面只监听本机（127.0.0.1），局域网默认不可访问
+
+## 🛠️ 故障排查
+
+| 现象 | 原因与解决 |
+|---|---|
+| 设备下拉是空的 | 手机解锁后点页面「刷新」；换一根**数据线**（有些线只能充电）；换个 USB 口 |
+| 连接时弹「开发者模式」 | iOS 16 及以下才需要；**iOS 17+ 不需要**（若在 iOS 17+ 上看到此弹窗请报 issue） |
+| 页面打开但地图空白 | 代理软件（ClashX 等）拦截了 localhost，把 `localhost` 加入代理绕行列表 |
+| 搜地点没结果 | 搜索服务（Nominatim）在国外，偶尔限流；直接在地图上**双击**选点，或输入 `纬度, 经度` 格式坐标 |
+| 双击 app 后没反应 | 看日志 `~/GeoPort/logs/geoport-cn.log`；确认输入的是本机密码 |
+| 模拟不生效 | 确认已点「连接设备」且手机屏幕解锁；点一次「停止模拟」再重新「模拟定位」 |
+| 官方 GeoPort 和本工具冲突 | 两者都用 54321 端口，同时只开一个；本工具被占用时会自动换随机端口（看日志） |
 
 ## ⚠️ 使用须知与免责声明
 

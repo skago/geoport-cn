@@ -2,7 +2,8 @@
 <html xmlns="http://www.w3.org/1999/html">
 
 <head>
-    <title>GeoPort</title>
+    <title>GeoPort CN · 定位模拟</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📍</text></svg>">
 
     <script src="https://cdn.jsdelivr.net/npm/babel-polyfill@latest/dist/polyfill.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/whatwg-fetch@3.6.2/dist/fetch.umd.min.js"></script>
@@ -341,20 +342,20 @@ body.dark-mode .modal-footer button {
 	<!-- Connect Device -->
 {% if error_messages %}
     <button type="button" class="btn btn-primary pl-4 pr-4" id="connect" onclick="connectDevice()" disabled>
-        <span id="connectText">Connect Device</span>
+        <span id="connectText">连接设备</span>
     </button>
 {% else %}
     <br>
       <form>
     <div class="mb-3">
-        <label for="device">Select Device:</label><br>
+        <label for="device">选择设备：</label><br>
         <div class="row">
             <div class="col">
                 <select class="custom-select d-block w-100" id="device" required>
                 </select>
             </div>
             <div class="col-md-auto">
-                <button type="button" class="btn btn-primary pl-4 pr-4" id="refresh" onclick="populateDeviceList()">Refresh</button>
+                <button type="button" class="btn btn-primary pl-4 pr-4" id="refresh" onclick="populateDeviceList()">刷新</button>
             </div>
         </div>
     </div>
@@ -374,12 +375,12 @@ body.dark-mode .modal-footer button {
 </div>
 
 <button type="button" class="btn btn-primary pl-4 pr-4" id="connect" onclick="connectDevice()">
-    <span id="connectText">Connect Device</span>
+    <span id="connectText">连接设备</span>
     <span id="spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
 </button>
 
 <button type="button" class="btn btn-danger pl-4 pr-4" id="disconnect" onclick="disconnectDevice()" style="display: none;">
-    Disconnect
+    断开连接
 </button>
 
 
@@ -1908,7 +1909,7 @@ async function searchLocation(input, userLocale) {
             activeMap.setView([disp.lat, disp.lng], zoom);
             setCoordinates(y, x);
         } else {
-            alert("No results found for the provided location");
+            alert("未找到该地点，换个关键词试试");
         }
     } catch (error) {
         console.error('Error during geocoding:', error);
@@ -2492,7 +2493,7 @@ function connectDevice() {
 
             // Reset connectTextElement
             if (connectTextElement) {
-                connectTextElement.innerText = "Connect Device";
+                connectTextElement.innerText = "连接设备";
                 spinnerElement.style.display = 'none'; // Display the spinner
             }
 
@@ -2631,7 +2632,7 @@ function showModalWifiModeRequired() {
 
         // Reset connectTextElement
         if (connectTextElement) {
-            connectTextElement.innerText = "Connect Device";
+            connectTextElement.innerText = "连接设备";
         }
 
         // Enable Connect button
@@ -3047,7 +3048,7 @@ function continueAfterDeveloperModeRequired() {
     console.log('Enabling Developer Mode on: ', selectedDeviceIdentifier);
 
     if (connectTextElement) {
-        connectTextElement.innerText = "Enabling Developer Mode";
+        connectTextElement.innerText = "正在开启开发者模式";
         spinnerElement.style.display = 'inline-block'; // Hide the spinner
     }
 
@@ -3093,7 +3094,7 @@ function continueAfterDeveloperModeRequired() {
         // Perform any actions needed to cancel after developer mode is required
         // Reset connectTextElement
         if (connectTextElement) {
-            connectTextElement.innerText = "Connect Device";
+            connectTextElement.innerText = "连接设备";
             spinnerElement.style.display = 'none'; // Hide the spinner
         }
 
@@ -3115,7 +3116,7 @@ function continueAfterDeveloperModeRequired() {
         // Perform any actions needed to cancel after developer mode is required
         // Reset connectTextElement
         if (connectTextElement) {
-            connectTextElement.innerText = "Connect Device";
+            connectTextElement.innerText = "连接设备";
             spinnerElement.style.display = 'none'; // Hide the spinner
         }
 
@@ -3201,13 +3202,13 @@ function continueAfterDeveloperModeRequired() {
 <div class="mb-3">
     <div class="row align-items-center">
         <div class="col-md-auto">
-            <label class="mb-0" for="coordinates">Location:</label>
+            <label class="mb-0" for="coordinates">位置：</label>
         </div>
         <div class="col">
             <input type="text" class="form-control" id="coordinates">
         </div>
         <div class="col-md-auto">
-            <button type="button" class="btn btn-primary" id="search" onclick="handleSearch()">Search</button>
+            <button type="button" class="btn btn-primary" id="search" onclick="handleSearch()">搜索</button>
         </div>
     </div>
 </div>
@@ -3239,10 +3240,10 @@ function continueAfterDeveloperModeRequired() {
 <div class="mb-3">
     <div class="row align-items-center">
         <div class="col">
-            <button type="button" class="btn btn-primary w-100" data-toggle="popover" id="set-location" disabled onclick="setLocation()">Simulate Location</button>
+            <button type="button" class="btn btn-primary w-100" data-toggle="popover" id="set-location" disabled onclick="setLocation()">模拟定位</button>
         </div>
         <div class="col">
-            <button type="button" class="btn btn-primary w-100" data-toggle="popover" id="stop-location" disabled onclick="stopLocation()">Stop Location</button>
+            <button type="button" class="btn btn-primary w-100" data-toggle="popover" id="stop-location" disabled onclick="stopLocation()">停止模拟</button>
         </div>
     </div>
 

@@ -1,39 +1,45 @@
 -- GeoPort CN launcher: double-click app experience
---   not running  -> ask for password (system dialog), start in background, open browser
---   already running -> choose: open page / stop service
+--   not running     -> system password prompt, start in background, open browser
+--   already running -> choose: open page / stop service / open log
+-- Logs live at ~/GeoPort/logs/geoport-cn.log (persists across reboots).
+property appDir : "/Users/user/www.github.com/geoport-cn"
+property logFile : "/Users/user/GeoPort/logs/geoport-cn.log"
+
 on run
-	set appDir to "/Users/user/www.github.com/geoport-cn"
-	set logFile to "/tmp/geoport-cn.log"
-	set procPattern to "src/main.py"
-	
-	set isRunning to my isProcessRunning(procPattern)
+	set isRunning to my isProcessRunning("src/main.py")
 	
 	if isRunning then
 		set theChoice to button returned of (display dialog "GeoPort CN 正在后台运行。" buttons {"打开页面", "停止服务", "取消"} default button "打开页面" with icon note)
 		if theChoice is "打开页面" then
-			my openDashboard(logFile)
+			my openDashboard()
 		else if theChoice is "停止服务" then
 			try
-				do shell script "pkill -f " & quoted form of procPattern with administrator privileges
+				do shell script "pkill -f 'src/main.py'" with administrator privileges
 				display notification "GeoPort CN 已停止" with title "GeoPort CN"
 			end try
 		end if
 	else
+		-- 启动：子 shell 包裹 + 切断 stdin（do shell script 的等待语义下，
+		-- 直接 `cmd &` 会把 AppleScript 卡死，此结构已实测立即返回）
 		try
-			do shell script "cd " & quoted form of appDir & " && ./.venv/bin/python src/main.py --no-browser > " & logFile & " 2>&1 & echo launched" with administrator privileges
-		on error errMsg number errNum
-			display dialog "启动失败：" & errMsg buttons {"好"} with icon stop
+			do shell script "mkdir -p /Users/user/GeoPort/logs && cd " & quoted form of appDir & " && ( ./.venv/bin/python src/main.py --no-browser > " & quoted form of logFile & " 2>&1 < /dev/null & ) ; echo launched" with administrator privileges
+		on error errMsg
+			display dialog "启动失败：" & errMsg & return & return & "日志：" & logFile buttons {"好"} with icon stop
 			return
 		end try
-		-- 等服务就绪并打开页面
-		repeat with i from 1 to 20
+		-- 等服务就绪（最多 30 秒）并打开页面
+		repeat with i from 1 to 30
 			delay 1
 			try
-				set readyPort to my servingPort(logFile)
+				set readyPort to my servingPort()
 				if readyPort is not "" then exit repeat
 			end try
 		end repeat
-		my openDashboard(logFile)
+		if my servingPort() is "" then
+			display dialog "服务启动超时。请把日志发给开发者排查：" & return & logFile buttons {"好"} with icon caution
+		else
+			my openDashboard()
+		end if
 	end if
 end run
 
@@ -46,16 +52,16 @@ on isProcessRunning(pattern)
 	end try
 end isProcessRunning
 
-on servingPort(logFile)
+on servingPort()
 	try
-		return do shell script "grep -o 'Serving: http://localhost:[0-9]*' " & logFile & " | tail -1 | grep -o '[0-9]*$'"
+		return do shell script "grep -o 'Serving: http://localhost:[0-9]*' " & quoted form of logFile & " | tail -1 | grep -o '[0-9]*$'"
 	on error
 		return ""
 	end try
 end servingPort
 
-on openDashboard(logFile)
-	set thePort to my servingPort(logFile)
+on openDashboard()
+	set thePort to my servingPort()
 	if thePort is "" then set thePort to "54321"
 	open location ("http://localhost:" & thePort)
 end openDashboard

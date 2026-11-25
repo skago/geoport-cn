@@ -1572,10 +1572,9 @@ def refresh_remote_data():
                 _cached_github_broadcast = broadcast
         except Exception as e:
             logger.warning(f"Broadcast fetch failed: {e}")
-        try:
-            get_user_country()  # caches into _user_country_cache
-        except Exception as e:
-            logger.warning(f"Country lookup failed: {e}")
+        # privacy: NO periodic IP-geolocation lookups in the background loop.
+        # get_user_country() stays lazy — called at most once per process
+        # (initial map centering / fuel-region default) and cached.
         time.sleep(REMOTE_REFRESH_INTERVAL)
 
 _cached_github_version = None
