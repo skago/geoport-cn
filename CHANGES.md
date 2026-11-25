@@ -34,6 +34,7 @@
 
 ### 其他
 - 版本号/更新检查指向本 fork 仓库（`GITHUB_REPO = 'skago/geoport-cn'`）
+- 移除上游遗留的 `src/templates/map2.html`（从未被任何路由渲染的死代码，内含上游的第三方 VPN 推广位）
 - `APP_VERSION_NUMBER` 对齐 `CURRENT_VERSION`（原 2.3.3 与 5.0.3 不一致导致误报更新）
 
 ## `src/templates/map.html`
@@ -56,7 +57,6 @@
 ## 未修改
 
 - `LICENSE`（GPL-3.0）原样保留
-- `src/templates/map2.html`（上游死代码，无路由渲染，保持原样）
 - `docs/`、`images/`、`FAQ.md`、`MAP_LAYERS.json` 原样保留
 
 ## 第三方代码
