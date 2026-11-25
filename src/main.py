@@ -600,6 +600,156 @@ def find_favorite(data, favorite_id):
             return entry
     return None
 
+
+#========= 智能搜索（高德 POI 优先，Nominatim 回落） ========
+
+AMAP_PLACE_TEXT_URL = "https://restapi.amap.com/v3/place/text"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+CONFIG_FILE = os.path.join(home_dir, 'GeoPort', 'config.json')
+
+
+def load_amap_key():
+    """读取用户自配的高德 Web 服务 key（~/GeoPort/config.json 的 amap_key）。
+
+    高德个人开发者 key 免费（日配额足够个人使用）；不配置则搜索回落到
+    Nominatim（可用性较差）。key 只存在本机，不上传任何地方。
+    """
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        key = (cfg.get('amap_key') or '').strip()
+        return key or None
+    except (OSError, ValueError):
+        return None
+
+
+def _wgs2gcj(lat, lng):
+    """WGS-84 → GCJ-02（eviltransform 标准算法，与前端 JS 一致）。"""
+    if lng < 72.004 or lng > 137.8347 or lat < 0.8293 or lat > 55.8271:
+        return lat, lng
+    ee = 0.00669342162296594323
+
+    def t_lat(x, y):
+        ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y \
+            + 0.2 * math.sqrt(abs(x))
+        ret += (20.0 * math.sin(6.0 * x * math.pi)
+                + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+        ret += (20.0 * math.sin(y * math.pi)
+                + 40.0 * math.sin(y / 3.0 * math.pi)) * 2.0 / 3.0
+        ret += (160.0 * math.sin(y / 12.0 * math.pi)
+                + 320.0 * math.sin(y * math.pi / 30.0)) * 2.0 / 3.0
+        return ret
+
+    def t_lng(x, y):
+        ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y \
+            + 0.1 * math.sqrt(abs(x))
+        ret += (20.0 * math.sin(6.0 * x * math.pi)
+                + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+        ret += (20.0 * math.sin(x * math.pi)
+                + 40.0 * math.sin(x / 3.0 * math.pi)) * 2.0 / 3.0
+        ret += (150.0 * math.sin(x / 12.0 * math.pi)
+                + 300.0 * math.sin(x / 30.0 * math.pi)) * 2.0 / 3.0
+        return ret
+
+    d_lat = t_lat(lng - 105.0, lat - 35.0)
+    d_lng = t_lng(lng - 105.0, lat - 35.0)
+    rad_lat = lat / 180.0 * math.pi
+    magic = math.sin(rad_lat)
+    magic = 1 - ee * magic * magic
+    sqrt_magic = math.sqrt(magic)
+    d_lat = (d_lat * 180.0) / ((6378245.0 / sqrt_magic) * (1 - ee)
+                               / (magic * sqrt_magic) * math.pi)
+    d_lng = (d_lng * 180.0) / (6378245.0 / sqrt_magic
+                               * math.cos(rad_lat) * math.pi)
+    return lat + d_lat, lng + d_lng
+
+
+def _gcj2wgs(lat, lng):
+    """GCJ-02 → WGS-84（两次迭代近似，精度 < 1m）。
+    高德 POI 返回 GCJ-02；业务坐标统一 WGS-84。"""
+    if lng < 72.004 or lng > 137.8347 or lat < 0.8293 or lat > 55.8271:
+        return lat, lng
+    wgs_lat, wgs_lng = lat, lng
+    for _ in range(2):
+        gcj_lat, gcj_lng = _wgs2gcj(wgs_lat, wgs_lng)
+        wgs_lat += lat - gcj_lat
+        wgs_lng += lng - gcj_lng
+    return wgs_lat, wgs_lng
+
+
+
+
+@app.route('/api/geocode')
+def api_geocode():
+    """统一搜索入口：
+    - "纬度, 经度" 直通
+    - 配置了 amap_key → 高德 POI 搜索（高德地图同款结果，GCJ-02 自动转 WGS-84）
+    - 否则 → Nominatim（后端代理，避免浏览器端直连限流）
+    """
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({'results': [], 'provider': 'none'})
+    # 坐标直通（支持中英文逗号/空格分隔）
+    m = re.match(r'^(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)$', q)
+    if m:
+        lat, lng = float(m.group(1)), float(m.group(2))
+        if -90 <= lat <= 90 and -180 <= lng <= 180:
+            return jsonify({'results': [
+                {'name': q, 'address': '坐标直通', 'lat': lat, 'lng': lng}],
+                'provider': 'coordinates'})
+    amap_key = load_amap_key()
+    if amap_key:
+        try:
+            resp = requests.get(
+                AMAP_PLACE_TEXT_URL,
+                params={'key': amap_key, 'keywords': q, 'offset': 8,
+                        'page': 1, 'extensions': 'base'},
+                timeout=8)
+            data = resp.json()
+            if data.get('status') == '1':
+                results = []
+                for poi in data.get('pois') or []:
+                    loc = str(poi.get('location') or '')
+                    if ',' not in loc:
+                        continue
+                    lng_s, lat_s = loc.split(',')[:2]
+                    w_lat, w_lng = _gcj2wgs(float(lat_s), float(lng_s))
+                    address = ' '.join(
+                        x for x in (poi.get('pname'), poi.get('cityname'),
+                                    poi.get('adname'), poi.get('address'))
+                        if x and x != '[]')
+                    results.append({'name': poi.get('name') or q,
+                                    'address': address, 'lat': w_lat,
+                                    'lng': w_lng})
+                return jsonify({'results': results, 'provider': 'amap'})
+            logger.warning(f"amap search failed: {data.get('info')}")
+            return jsonify({'results': [], 'provider': 'amap',
+                            'error': str(data.get('info') or 'amap error')})
+        except requests.RequestException as exc:
+            logger.warning(f"amap search error: {exc}")
+            return jsonify({'results': [], 'provider': 'amap',
+                            'error': str(exc)})
+    # Nominatim 后端代理（服务器侧 UA，规避浏览器直连限制）
+    try:
+        resp = requests.get(
+            NOMINATIM_SEARCH_URL,
+            params={'q': q, 'format': 'json', 'limit': 6,
+                    'accept-language': 'zh-CN'},
+            headers={'User-Agent':
+                     f'GeoPortCN/{APP_VERSION_NUMBER} (local-use tool)'},
+            timeout=10)
+        results = [{'name': (x.get('name') or x.get('display_name', ''))[:50],
+                    'address': x.get('display_name', ''),
+                    'lat': float(x['lat']), 'lng': float(x['lon'])}
+                   for x in resp.json()]
+        return jsonify({'results': results, 'provider': 'nominatim'})
+    except Exception as exc:
+        logger.warning(f"nominatim search error: {exc}")
+        return jsonify({'results': [], 'provider': 'nominatim',
+                        'error': str(exc)})
+
+#========= 智能搜索 END ========
+
 @app.route('/api/locations')
 def get_saved_locations():
     return jsonify(load_saved_locations())

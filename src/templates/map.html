@@ -87,6 +87,21 @@
             max-height: 70vh;
         }
 
+        /* 搜索候选面板 */
+        #searchResults {
+            position: absolute; z-index: 2000; background: #fff;
+            border: 1px solid #d0d7de; border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.15); max-height: 320px;
+            overflow-y: auto; min-width: 320px; display: none;
+        }
+        #searchResults .sr-item { padding: 8px 12px; cursor: pointer;
+            border-bottom: 1px solid #f0f0f0; }
+        #searchResults .sr-item:hover { background: #f5f8ff; }
+        #searchResults .sr-name { font-weight: 600; }
+        #searchResults .sr-addr { color: #888; font-size: 12px; }
+        #searchResults .sr-provider { padding: 6px 12px; color: #aaa;
+            font-size: 11px; background: #fafafa; }
+
         /* 历史/收藏列表 */
         .location-list {
             list-style: none;
@@ -1885,34 +1900,95 @@ function handleSearch() {
     searchLocation(input);
 }
 
-// Function to search location
-async function searchLocation(input, userLocale) {
-    // Initialize the OSM provider for searching
-    var provider = new GeoSearch.OpenStreetMapProvider();
-    try {
-        const results = await provider.search({ query: input });
-        if (results.length > 0) {
-            const { x, y } = results[0];
-            // x/y 为 WGS-84 业务坐标；显示位置按当前地图源纠偏
-            const disp = toDisplayCoords(parseFloat(y), parseFloat(x));
-            const activeMap = getActiveMap();
-            const zoom = (activeMap === baiduMap) ? 13 + BAIDU_ZOOM_OFFSET : 13;
-            if (!marker || marker._map !== activeMap) {
-                if (marker) marker.remove();
-                marker = L.marker([disp.lat, disp.lng], { draggable: true }).addTo(activeMap);
-                marker.on('dragend', handleMarkerDragEnd); // Add event listener for marker drag
-                marker.on('contextmenu', handleMarkerRightClick); // Add event listener for marker right-click
+// 把一个搜索结果应用到地图（marker + 视图 + 坐标）
+function applySearchResult(r) {
+    const disp = toDisplayCoords(r.lat, r.lng);
+    const activeMap = getActiveMap();
+    const zoom = (activeMap === baiduMap) ? 13 + BAIDU_ZOOM_OFFSET : 15;
+    if (!marker || marker._map !== activeMap) {
+        if (marker) marker.remove();
+        marker = L.marker([disp.lat, disp.lng], { draggable: true }).addTo(activeMap);
+        marker.on('dragend', handleMarkerDragEnd);
+        marker.on('contextmenu', handleMarkerRightClick);
+    } else {
+        marker.setLatLng([disp.lat, disp.lng]);
+    }
+    activeMap.setView([disp.lat, disp.lng], zoom);
+    setCoordinates(r.lat, r.lng);
+    hideSearchResults();
+}
 
-            } else {
-                marker.setLatLng([disp.lat, disp.lng]);
-            }
-            activeMap.setView([disp.lat, disp.lng], zoom);
-            setCoordinates(y, x);
+function hideSearchResults() {
+    var panel = document.getElementById('searchResults');
+    if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+}
+
+function showSearchResults(results, provider) {
+    var panel = document.getElementById('searchResults');
+    if (!panel || !results.length) { hideSearchResults(); return; }
+    panel.innerHTML = '';
+    var providerNote = {
+        amap: '高德地图搜索结果',
+        nominatim: 'OSM 搜索（配置高德 key 可大幅提升中文搜索）',
+        coordinates: '坐标直通',
+    }[provider] || '';
+    if (providerNote) {
+        var note = document.createElement('div');
+        note.className = 'sr-provider';
+        note.textContent = providerNote;
+        panel.appendChild(note);
+    }
+    results.slice(0, 8).forEach(function (r, idx) {
+        var item = document.createElement('div');
+        item.className = 'sr-item';
+        var name = document.createElement('div');
+        name.className = 'sr-name';
+        name.textContent = (idx + 1) + '. ' + (r.name || '未命名地点');
+        var addr = document.createElement('div');
+        addr.className = 'sr-addr';
+        addr.textContent = r.address || '';
+        item.appendChild(name);
+        if (r.address) item.appendChild(addr);
+        item.onclick = function () { applySearchResult(r); };
+        panel.appendChild(item);
+    });
+    panel.style.display = 'block';
+}
+
+// Function to search location — 统一走后端 /api/geocode：
+// 坐标直通 / 高德 POI（配 key 时）/ Nominatim 回落；多条结果显示候选面板
+async function searchLocation(input) {
+    var query = (input || '').trim();
+    if (!query) return;
+    // 坐标直接应用（不弹面板）
+    var m = query.match(/^(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)$/);
+    if (m) {
+        var lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+        if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+            applySearchResult({ name: query, address: '坐标', lat: lat, lng: lng });
+            return;
+        }
+    }
+    try {
+        const resp = await fetch('/api/geocode?q=' + encodeURIComponent(query));
+        const data = await resp.json();
+        if ((data.results || []).length === 1) {
+            applySearchResult(data.results[0]);
+        } else if ((data.results || []).length > 1) {
+            // 先落到第一个结果，同时展示候选
+            applySearchResult(data.results[0]);
+            showSearchResults(data.results, data.provider);
         } else {
-            alert("未找到该地点，换个关键词试试");
+            var hint = data.provider === 'amap' && data.error
+                ? '高德搜索出错：' + data.error
+                : '未找到该地点。' + (data.provider === 'nominatim'
+                    ? '当前为 OSM 搜索（中文覆盖有限），配置高德 key 可获得高德地图同款搜索，见 README。'
+                    : '换个关键词试试，或直接输入"纬度, 经度"。');
+            alert(hint);
         }
     } catch (error) {
         console.error('Error during geocoding:', error);
+        alert('搜索请求失败，请检查服务是否在运行');
     }
 }
 
@@ -3188,6 +3264,13 @@ function continueAfterDeveloperModeRequired() {
     console.log("listener loaded");
 
     document.getElementById('search').addEventListener('click', handleSearch);
+    document.addEventListener('click', function (e) {
+        var panel = document.getElementById('searchResults');
+        if (panel && panel.style.display === 'block'
+            && !panel.contains(e.target) && e.target.id !== 'coordinates') {
+            hideSearchResults();
+        }
+    });
 
         // 设备自动发现：未连接时每 8 秒检查一次，设备数变化才刷新下拉
         setInterval(function () {
@@ -3249,18 +3332,20 @@ function continueAfterDeveloperModeRequired() {
 </div>
 
 <!-- 历史与收藏 -->
-<div class="mb-3">
+<div class="mb-3" style="position: relative;">
     <div class="row align-items-center">
         <div class="col-md-auto">
             <label class="mb-0" for="coordinates">位置：</label>
         </div>
         <div class="col">
-            <input type="text" class="form-control" id="coordinates">
+            <input type="text" class="form-control" id="coordinates"
+                   placeholder="输入地点名（如：天安门）或 纬度, 经度">
         </div>
         <div class="col-md-auto">
             <button type="button" class="btn btn-primary" id="search" onclick="handleSearch()">搜索</button>
         </div>
     </div>
+    <div id="searchResults"></div>
 </div>
 
 <div class="mb-3">
