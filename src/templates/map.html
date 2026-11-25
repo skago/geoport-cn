@@ -1153,13 +1153,28 @@ async function initializeMap(userLocale) {
     mapABaseLayers.google_sat = googleSatelliteLayer;
     mapABaseLayers.stadia = stadiaTileLayer;
 
-    // Use searchLocation to get coordinates based on userLocale
-    await searchLocation(userLocale);
+    // 底图容错：高德瓦片连续失败（网络受限等）时自动降级到 OpenStreetMap，
+    // 并同步纠偏状态——核心功能（选点/模拟）不受任何影响
+    var amapTileErrors = 0;
+    amapStreetLayer.on('tileerror', function () {
+        amapTileErrors++;
+        if (amapTileErrors === 6 && currentSourceKey === 'amap') {
+            displayToast('高德地图加载失败，已自动切换到 OpenStreetMap');
+            if (map.hasLayer(mapABaseLayer)) map.removeLayer(mapABaseLayer);
+            openStreetMapTileLayer.addTo(map);
+            mapABaseLayer = openStreetMapTileLayer;
+            currentMapSource = null;
+            currentSourceKey = 'other';
+            renderBusinessMarker(false);
+            syncSourceSelectorUI();
+        }
+    });
+
+    // 初始视图：固定中国中心（零网络依赖——初始定位是非必须功能，
+    // 任何网络失败都不允许阻塞地图渲染/触发报错弹窗）
+    map.setView([35.0, 105.0], 4);
 
     map.on('dblclick', handleMapDoubleClick);
-
-    // Set the zoom level to 4
-    map.setZoom(4);
 
     // Define tile layer control options
     var baseLayers = {
@@ -1997,15 +2012,19 @@ async function searchLocation(input) {
             return;
         }
     }
+    // 视野偏置：优先搜当前地图范围内的结果；获取失败不影响搜索本身
+    var viewbox = '';
     try {
-        // 视野偏置：优先搜当前地图范围内的结果（中文地名准确度提升明显）
         var activeMap0 = getActiveMap();
         var b = activeMap0.getBounds();
         var sw = toWgsCoords(b.getSouth(), b.getWest());
         var ne = toWgsCoords(b.getNorth(), b.getEast());
-        var viewbox = sw.lng + ',' + sw.lat + ',' + ne.lng + ',' + ne.lat;
-        const resp = await fetch('/api/geocode?q=' + encodeURIComponent(query)
-            + '&viewbox=' + encodeURIComponent(viewbox));
+        viewbox = sw.lng + ',' + sw.lat + ',' + ne.lng + ',' + ne.lat;
+    } catch (e) { /* 地图未就绪时无视野，正常 */ }
+    try {
+        var geocodeUrl = '/api/geocode?q=' + encodeURIComponent(query);
+        if (viewbox) geocodeUrl += '&viewbox=' + encodeURIComponent(viewbox);
+        const resp = await fetch(geocodeUrl);
         const data = await resp.json();
         if ((data.results || []).length === 1) {
             applySearchResult(data.results[0]);
