@@ -20,7 +20,7 @@ on run
 		end if
 	else
 		try
-			do shell script "cd " & quoted form of appDir & " && nohup ./.venv/bin/python src/main.py --no-browser > " & logFile & " 2>&1 & echo launched" with administrator privileges
+			do shell script "cd " & quoted form of appDir & " && ./.venv/bin/python src/main.py --no-browser > " & logFile & " 2>&1 & echo launched" with administrator privileges
 		on error errMsg number errNum
 			display dialog "启动失败：" & errMsg buttons {"好"} with icon stop
 			return
