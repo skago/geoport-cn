@@ -39,6 +39,10 @@ cp scripts/assets/app-icon.icns "dist/GeoPort CN.app/Contents/Resources/applet.i
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "dist/GeoPort CN.app/Contents/Info.plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Set :CFBundleName GeoPort CN" "dist/GeoPort CN.app/Contents/Info.plist" 2>/dev/null || true
 touch "dist/GeoPort CN.app"
+# 关键：组装过程修改了 plist/塞入了二进制，会破坏 AppleScript 壳的签名；
+# 必须重签（adhoc），否则带下载隔离标记的 app 会被 macOS 判为“已损坏”
+codesign --force --deep --sign - "dist/GeoPort CN.app" 2>&1 | head -1
+codesign -v "dist/GeoPort CN.app" && echo "✓ 签名校验通过"
 
 # 4) 打 zip 发布包
 VERSION=$(grep -o 'APP_VERSION_NUMBER = "[^"]*"' src/main.py | cut -d'"' -f2 | sed 's/^v//')
