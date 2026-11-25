@@ -28,8 +28,14 @@ iPhone/iPad **首次**需用 USB 线连接一次完成配对，之后即可同 W
 ### 方式一：独立版（推荐，无需 Python）
 
 到 [Releases](https://github.com/skago/geoport-cn/releases/latest) 下载
-`GeoPort-CN-mac-*.zip`，解压后把「GeoPort CN」拖入应用程序文件夹，双击即用。
-零依赖、零配置。
+`GeoPort-CN-mac-*.zip`，解压后把「GeoPort CN」拖入应用程序文件夹，然后执行**一次**解除隔离的命令（macOS 对所有非 App Store 下载的应用都要求这一步，同类开源工具相同）：
+
+```bash
+xattr -rd com.apple.quarantine /Applications/GeoPort\ CN.app
+```
+
+之后双击即用，零依赖、零配置。（图形化替代：双击报"已损坏"后到
+系统设置 → 隐私与安全性 → 点「仍要打开」。）
 
 ### 方式二：源码版（开发者）
 
