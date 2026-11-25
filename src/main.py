@@ -1237,32 +1237,19 @@ def connect_wifi(data):
         if ios_version is not None and is_major_version_17_or_greater(ios_version):
             logger.info("iOS 17+ detected")
 
-            if version_check(ios_version):
-                try:
-                    devices = get_wifi_with_retry()
-                    #devices = "blah"
-                    logger.info(f"Connect Wifi Devices: {devices}")
-                    logger.info(f"Wifi Address:  {wifi_address}")
-                except RuntimeError as e:
-                    error_message = str(e)
-                    logger.error(f"Error: {error_message}")
-                    return jsonify({'error': 'No Devices Found'})
+            # 免 root 用户态隧道（与 USB 路径统一）：UserspaceRsdTunnel 对
+            # Wi-Fi（Network）设备自动选择 RemotePairing over bonjour。
+            # 前提：设备此前已用 USB 完成过配对（Wi-Fi 无法首次配对）。
+            try:
+                _run_session(_open_tunnel_session(udid), timeout=90)
+                rsd_host, rsd_port = "userspace-tunnel", "in-process"
+                logger.info("Userspace RSD tunnel established over Wi-Fi (no root)")
+            except Exception as exc:
+                logger.error(f"userspace tunnel (wifi) failed: {exc}")
+                return jsonify({'error': f'Wi-Fi 隧道建立失败: {exc}'})
 
-
-            rsd_host = None
-            rsd_port = None
-
-            # Run tun(devices) as a background task
-            #asyncio.create_task(tun(devices))
-            #await tun(devices)
-            #start_wifi_tunnel_thread(devices)
-            start_wifi_tunnel_thread()
-
-            if not check_rsd_data():
-                logger.error("RSD Data is None, Perhaps the tunnel isn't established")
-            else:
-                rsd_data = rsd_host, rsd_port
-                logger.info(f"RSD Data: {rsd_data}")
+            rsd_data = rsd_host, rsd_port
+            logger.info(f"RSD Data: {rsd_data}")
 
             rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
             logger.info(f"Device Connection Map: {rsd_data_map}")
