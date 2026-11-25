@@ -1835,6 +1835,14 @@ def refresh_remote_data():
 _cached_github_version = None
 _cached_github_broadcast = None
 
+@app.after_request
+def no_store_html(response):
+    """本地工具页面禁止浏览器缓存——始终渲染最新模板，杜绝旧页面误导排障。"""
+    if response.content_type and 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.route('/')
 def index():
     # global error_message

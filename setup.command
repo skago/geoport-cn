@@ -37,6 +37,8 @@ install_app() {
         # 新版 osacompile 产物使用 Assets.car 结构，需显式声明图标文件
         /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile applet.icns" "$target/Contents/Info.plist" 2>/dev/null || \
         /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string applet.icns" "$target/Contents/Info.plist"
+        # CFBundleIconName 优先级更高（指向 Assets.car 默认图标），必须删除
+        /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$target/Contents/Info.plist" 2>/dev/null
         touch "$target"
     fi
 }
