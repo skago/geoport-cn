@@ -1,1 +1,13 @@
-Hello \x00 world
+#!/bin/sh
+# GeoPort Enhanced launcher
+# Creates .venv on first run, then starts the web UI.
+# Real device operations on macOS/Linux require sudo:  sudo ./start
+cd "$(dirname "$0")"
+
+if [ ! -d .venv ]; then
+    echo "First run: creating virtualenv..."
+    python3 -m venv .venv
+    ./.venv/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+fi
+
+exec ./.venv/bin/python src/main.py "$@"

@@ -1,221 +1,80 @@
-# GeoPort v5: Your iOS Location, Anywhere! 🌍
+# GeoPort Enhanced
 
-<p align="center">
-  <a href="https://buymeacoffee.com/davesc63">
-    <img src="https://raw.githubusercontent.com/davesc63/GeoPort/main/images/buy-me-a-beer.png" alt="Buy me a beer" height="50">
-  </a>
-  <br><br>
-  <a href="https://geoport.me"><strong>https://geoport.me</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://geoport.me/ios.html#waitlist"><strong>Untethered iOS Waitlist</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://geoport.me/guide.html"><strong>Instruction Guide</strong></a>
-</p>
+> 基于 [davesc63/GeoPort](https://github.com/davesc63/GeoPort) 的增强版：无需越狱的 iOS 定位模拟工具。
+> Your Location, Anywhere!
 
-<p align="center">
-  <a href="https://github.com/davesc63/GeoPort/releases/latest">
-    <img src="https://img.shields.io/github/v/release/davesc63/GeoPort?style=for-the-badge&label=Desktop%20Release&color=0ea5e9" alt="Latest Desktop Release">
-  </a>
-  <a href="https://geoport.me/ios.html#waitlist">
-    <img src="https://img.shields.io/badge/iOS%20Untethered-Register%20Waitlist-14b8a6?style=for-the-badge" alt="Register for the iOS Waitlist">
-  </a>
-  <a href="https://geoport.me/guide.html">
-    <img src="https://img.shields.io/badge/Docs-Instruction%20Guide-38bdf8?style=for-the-badge" alt="Instruction Guide">
-  </a>
-  <a href="https://discord.gg/genRca55Nb">
-    <img src="https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white&style=for-the-badge" alt="Join Discord">
-  </a>
-</p>
+在原版基础上，增强版主要面向**中文用户 / 国内网络环境**，新增了国内地图源（含坐标纠偏）、历史记录与收藏等功能，并做了一系列安全与稳定性修复。
 
-<p align="center">
-  <strong>GeoPort is free and community-supported.</strong><br>
-  If GeoPort saves you time or unlocks new workflows, please consider <a href="https://buymeacoffee.com/davesc63"><strong>buying me a beer</strong></a> to help keep development going across every new iOS release!
-</p>
+## ✨ 相对上游的新特性
 
----
+- 🗺️ **地图源可选**：新增高德地图（街道/卫星，默认）、百度地图、Google（街道/卫星），保留原版 15 个国际底图源
+- 📐 **坐标系自动纠偏**：内置 WGS-84 ↔ GCJ-02 ↔ BD-09 转换，高德/百度底图上选点、搜索、路线回放均精确对位（发送给手机的坐标始终是 WGS-84）
+- 🕐 **历史记录**：每次成功模拟位置自动记录（50 米内自动去重，上限 100 条），点击即可一键复用
+- ⭐ **收藏夹**：常用地点收藏、改名、去重，不用每次重新填坐标
+- ⚡ **首页秒开**：外网请求（油价/版本检查/广播/IP 归属地）全部改为后台预取 + 缓存，弱网/代理环境下页面从卡 30 秒+ 降到毫秒级
+- 🔒 **安全修复**：移除 `verify=False`、关闭 Werkzeug debugger、默认只监听 `127.0.0.1`（`--host` 可开放局域网）、Flask 多线程模式
+- 🐍 **现代依赖适配**：适配 pymobiledevice3 v11.6x 新 API（上游源码已落后于打包版）
 
-## 📱 NEW BREAKTHROUGH: GeoPort Untethered iOS App (`v5.1` Beta)
+详细改动列表见 [CHANGES.md](CHANGES.md)。
 
-Run GeoPort **100% standalone directly on your iPhone** — no PC, Mac, or cable attached while spoofing! Built with a native **SwiftUI + Rust CoreDevice & Userspace RSD engine**, GeoPort iOS lets you teleport anywhere on Earth, nudge with the floating Compass D-pad, cruise street-routed GPX tracks, and hold simulated GPS with your screen locked using a **$0 Free Apple ID** via **SideStore & LocalDevVPN** (plus zero-PC on-device pairing ready for iOS 27+).
+## 🚀 安装与运行
 
-- 🚀 **[Register for the iOS Waitlist (`geoport.me/ios.html#waitlist`)](https://geoport.me/ios.html#waitlist)** — Controlled `v5.1` tester invite waves
-- 📖 **[Full Instruction Guide (`geoport.me/guide.html`)](https://geoport.me/guide.html)** — 4-Step Setup, Daily Controls, 5G 3-Second Handshake & Settings Reference
+依赖：Python 3.10+，真机操作需要 USB 连接 iPhone/iPad（首次需配对）。
 
-<table align="center">
-  <tr>
-    <td align="center" width="33%">
-      <a href="https://geoport.me/ios.html#waitlist">
-        <img src="docs/screenshots/app-teleport.png" alt="GeoPort iOS Dark Mode Spatial HUD" width="240">
-      </a>
-      <br><sub><strong>Dark Mode Spatial HUD</strong><br>3D Map, D-Pad &amp; 1-Tap Restore GPS</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="https://geoport.me/guide.html">
-        <img src="docs/screenshots/app-light-mode.png" alt="GeoPort iOS Contrast-Tuned Light Mode" width="240">
-      </a>
-      <br><sub><strong>Contrast-Tuned Light Mode</strong><br>Crisp Slate-Mist Daylight Controls</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="https://geoport.me/guide.html">
-        <img src="docs/screenshots/app-route.png" alt="GeoPort iOS Street Routes and GPX Player" width="240">
-      </a>
-      <br><sub><strong>Street Routes &amp; GPX Player</strong><br>Walk, Run, Cycle &amp; Drive Profiles</sub>
-    </td>
-  </tr>
-</table>
+```bash
+git clone https://github.com/skago/geoport-enhanced.git
+cd geoport-enhanced
 
----
+# 一键启动（首次运行自动创建虚拟环境并安装依赖）
+./start
 
-## 🖥️ Cross-Platform Desktop Studio: Modern Spatial HUD & Classic UI
-
-**GeoPort Desktop** is a cross-platform iOS GPS location simulation studio for **Windows**, **macOS (Apple Silicon & Intel)**, and **Ubuntu Linux / Headless Servers**. Teleport anywhere on Earth, nudge your position in real time with keyboard arrow keys or the on-screen D-pad, replay GPX/GeoJSON tracks, or cruise along real street-routed journeys over **Wi-Fi** or **USB** — with **zero jailbreak** and **zero `sudo` / Administrator elevation** required.
-
-### ✨ Desktop Modern UI (`Spatial Location Studio` — Default)
-Sleek dark glassmorphic command deck (`/?ui=modern`) with live Userspace RSD telemetry, saved pin chips, Fuel Watch, Route Builder, 21 dynamic map overlays, and a floating compass D-pad:
-
-<p align="center">
-  <img src="docs/screenshots/desktop-modern-ui.png" alt="GeoPort v5 Desktop Modern Spatial HUD UI" width="96%">
-</p>
-
-### 🎛️ Desktop Classic UI (`1-Click Switchable`)
-Prefer the original streamlined GeoPort workflow? Click **Classic UI** in the top bar (`/?ui=classic`) anytime to switch instantly with full GPX/Route drawing tools, Fuel Mode, and 1-click pairing export:
-
-<p align="center">
-  <img src="docs/screenshots/desktop-classic-ui.png" alt="GeoPort v5 Desktop Classic UI" width="96%">
-</p>
-
----
-
-## 🚀 What's New in GeoPort v5 — Pure Userspace Engine!
-
-GeoPort v5 is a ground-up architectural upgrade built on the latest **`pymobiledevice3` (v11.61+)** and **`pmd-pytcp`** pure-userspace networking stack.
-
-### Why GeoPort v5 is a Huge Leap Forward
-
-| Capability | GeoPort v4 (Legacy) | GeoPort v5 (New!) | Benefit to You |
-| :--- | :--- | :--- | :--- |
-| **CoreDevice RSD Tunnel** | OS Kernel TUN (`utun` / `WinTun` / `/dev/net/tun`) | **100% Pure Userspace TCP/IPv6 RSD** | **No `sudo` password on macOS/Linux** and **no UAC Administrator prompt or `WinTun` driver on Windows!** |
-| **iOS Compatibility** | iOS 17 – iOS 18 | **iOS 17, iOS 18 & iOS 26+** | Ready for Apple's newest iOS builds out of the box |
-| **Wi-Fi Discovery** | Basic Bonjour lookup | **Cryptographic `_apple-mobdev2._tcp` Matching** | Reliably discovers paired iPhones over Wi-Fi even with iOS **Private Wi-Fi Address** MAC randomization enabled |
-| **Linux & Home Servers** | Required root + `/dev/net/tun` + `usbmuxd` | **First-Class Rootless Linux & Headless LXC** | Run GeoPort 24/7 on an Ubuntu box, Raspberry Pi, or unprivileged Proxmox LXC over Wi-Fi and control it from any browser on your LAN |
-| **Location Stability** | Re-opened DVT per update | **Persistent Sub-10ms Location Channel + Keep-Alive** | Instant arrow-key/route updates and rock-solid GPS hold that won't snap back to real GPS mid-session |
-| **Developer Mode Setup** | Required removing passcode | **Passcode-Friendly UI Reveal** | Automatically reveals `Settings → Privacy & Security → Developer Mode` without forcing you to delete Face ID / Passcode |
-| **Web Interface & Maps** | Classic View only | **New Spatial HUD + Classic UI (Zero API Keys)** | Sleek dark glassmorphic Spatial HUD (`/?ui=modern`) + 1-click Classic toggle (`/?ui=classic`) with locally cached OpenStreetMap, Dark, Topo & Satellite tiles |
-
----
-
-## ✨ Key Features
-
-- **🌍 Global Teleportation & Street Routing** — Double-click anywhere on the globe, search any address/landmark, or generate realistic multi-stop street routes with **Walk**, **Run**, **Cycle**, **Drive**, or custom `km/h` speed profiles.
-- **🕹️ Live Keyboard & Touch D-Pad Control** — Nudge your live simulated GPS position smoothly using your keyboard arrow keys or the on-screen compass D-pad.
-- **📂 GPX & GeoJSON Playback** — Drag-and-drop `.gpx` or `.geojson` tracks to simulate runs, rides, and drives with live progress and pause/resume controls.
-- **📶 True Wireless Wi-Fi Workflow** — Pair once over USB, enable Wi-Fi connection, unplug the cable, and simulate wirelessly across your local network.
-- **🎨 Dual Web UI (`Spatial HUD` & `Classic`)** — Launch into the dark glassmorphic Spatial Studio or click **Classic UI** anytime if you prefer the original GeoPort layout.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/davesc63/GeoPort/main/images/geoport-demo.gif" alt="GeoPort Live Demo">
-</p>
-
----
-
-## 🗺️ Map Overlays & Local Overrides (No Rebuild Required!)
-
-GeoPort v5.0.2+ includes **21 curated map overlays** out of the box across both the **Spatial HUD** (`🗺️` selector above the D-pad) and **Classic UI** (top-right layer switcher):
-
-- **13 Zero-API-Key Global Overlays** *(work everywhere — `localhost`, LAN IPs like `192.168.x.x`, and headless servers)*:
-  - **Dark**: *Esri Dark Canvas (with Street & Place Labels)*, *OSM Midnight (Detailed Dark)*
-  - **Streets & Terrain**: *Esri World Street Map*, *Esri World Topo Map*, *Esri Light Smooth Canvas*, *OpenStreetMap*, *OpenStreetMap HOT*, *OpenTopoMap (Contours)*
-  - **Satellite & Specialty**: *Esri Satellite Hybrid (Imagery + Roads & Labels)*, *Esri World Imagery*, *Esri National Geographic*, *OPNVKarte (Transit & Airports)*, *CyclOSM (Trails & Bikeways)*
-- **8 Classic Stadia Overlays** *(OSM Bright, Alidade Smooth, Alidade Smooth Dark, Outdoors, Stamen Terrain, Stamen Toner, Stamen Watercolor, Alidade Satellite)*:
-  - Automatically active on `http://localhost` (Windows & macOS desktop).
-  - Running GeoPort on a LAN IP / headless server and want Stadia there too? Click the **`🔑` key icon** next to the map selector (or set `stadia_api_key` below) to paste a free personal [Stadia Maps](https://stadiamaps.com/) API key.
-
-### Live GitHub Sync & Custom Local Overrides
-
-GeoPort automatically syncs new or updated map providers from [`MAP_LAYERS.json`](https://github.com/davesc63/GeoPort/blob/main/MAP_LAYERS.json) (or click the **`↻` sync icon** next to the map dropdown anytime) — so map URLs and styles stay fresh without needing a new app binary.
-
-You can also add your own custom XYZ tile servers, set a personal API key, or change default startup layers locally — **applied immediately on browser refresh (`F5`) with no restart or repackaging**:
-
-- **macOS / Linux**: `~/.geoport/map_layers.json` *(or `./MAP_LAYERS.json` in the working directory)*
-- **Windows**: `%USERPROFILE%\.geoport\map_layers.json`
-
-```json
-{
-  "stadia_api_key": "YOUR_OPTIONAL_FREE_STADIA_KEY",
-  "defaults": {
-    "modern_dark": "esri_dark_gray",
-    "modern_light": "esri_world_topo",
-    "classic": "esri_world_street"
-  },
-  "extra_layers": [
-    {
-      "id": "my_custom_tiles",
-      "name": "My Custom XYZ Map",
-      "category": "Custom",
-      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      "maxZoom": 19,
-      "attribution": "© OpenStreetMap contributors"
-    }
-  ]
-}
+# 真机定位模拟在 macOS/Linux 下需要 root：
+sudo ./start
 ```
 
-> **Tip for UI Tinkerers:** GeoPort v5 also checks `~/.geoport/templates/` (and `./templates/` next to the binary) *before* bundled templates — drop a customized `map_modern.html` or `map.html` there and hit refresh (`F5`) to tweak the UI live without rebuilding!
+然后浏览器打开 `http://localhost:54321`。
 
----
+<details>
+<summary>手动安装 / 常用参数</summary>
 
-## ⛽ Australian Fuel Mode
+```bash
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt   # 国内可加 -i https://pypi.tuna.tsinghua.edu.cn/simple
+./.venv/bin/python src/main.py --no-browser --port 54329
+```
 
-For the 🇦🇺 Aussies 🇦🇺 chasing the sharpest bowser prices — switch to **Fuel Mode** in GeoPort to find the cheapest live fuel stations across **QLD, NSW, VIC, WA, and ACT** by fuel grade (`U91`, `E10`, `U95`, `U98`, `Diesel`, `LPG`) and jump straight to the station pin in one click!
+| 参数 | 说明 |
+|---|---|
+| `--port` | Web UI 端口（默认 54321，被占用时自动换随机端口） |
+| `--host` | 监听地址（默认 127.0.0.1；`0.0.0.0` 开放局域网，注意安全） |
+| `--no-browser` | 不自动打开浏览器 |
+| `--udid` | 指定目标设备 |
+| `--wifihost` | 通过 Wi-Fi 连接指定设备 IP |
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/davesc63/GeoPort/main/images/fuel.png" alt="GeoPort Fuel Mode" width="55%">
-</p>
+</details>
 
----
+数据文件（历史/收藏）保存在 `~/GeoPort/saved_locations.json`。
 
-## 🛠️ Developer Mode Made Easy
+## ⚠️ 使用须知与免责声明
 
-Apple requires **Developer Mode** to be enabled on iOS 16+ before location simulation services become available. GeoPort detects this automatically when you connect:
+- 本工具仅供**应用开发测试、定位功能调试、个人学习**等合法用途
+- 使用本工具伪造位置可能违反某些 App 或平台的服务条款，由此产生的后果由使用者自行承担
+- 请遵守你所在地区的法律法规
+- 地图瓦片版权归各地图厂商所有，请遵循其服务条款
 
-- **No Passcode Set**: GeoPort enables Developer Mode directly.
-- **Passcode / Face ID Enabled**: GeoPort v5 automatically reveals the hidden **Developer Mode** menu in `Settings → Privacy & Security → Developer Mode` on your iPhone so you can toggle it on **without removing your passcode**.
+## 📄 许可证
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/davesc63/GeoPort/main/images/devmode.png" alt="Developer Mode" width="50%">
-</p>
+本项目基于 GPL-3.0 许可证发布（继承自上游项目）。
 
----
+- 上游项目：[GeoPort](https://github.com/davesc63/GeoPort) by davesc63
+- 核心依赖：[pymobiledevice3](https://github.com/doronz88/pymobiledevice3) by doronz88（同为 GPL）
+- 修改内容详见 [CHANGES.md](CHANGES.md)
 
-## 📦 Desktop Installation & Quick Start
+## ☕ 支持这个项目
 
-**No Python, Xcode, or command-line tools required** — GeoPort Desktop ships as a single self-contained download for every platform:
+如果增强版对你有帮助，欢迎请作者喝杯咖啡：
 
-1. **Download the latest Desktop release** from [**geoport.me**](https://geoport.me) or [**GitHub Releases**](https://github.com/davesc63/GeoPort/releases/latest):
-   - **Windows 10 / 11 (x64)**: `GeoPort-Windows-v5.x.x.exe` *(install [iTunes](https://www.apple.com/itunes/) or Apple Devices from Microsoft Store so Windows has Apple's USB/Bonjour driver)*
-   - **macOS Apple Silicon (M1–M4)**: `GeoPort-arm-v5.x.x.dmg`
-   - **macOS Intel (x86_64)**: `GeoPort-x86-v5.x.x.dmg`
-   - **Ubuntu Linux / Headless LXC (x86_64)**: `GeoPort-ubuntu-v5.x.x.zip` *(includes `systemd` service unit & headless Wi-Fi guide)*
-2. **Launch GeoPort** — no Administrator or `sudo` elevation needed! Your browser will open `http://localhost:54321` (or access `http://<server-ip>:54321` on headless Linux).
-3. **Select your iPhone/iPad** (USB or Wi-Fi), click **Connect**, drop a pin on the map, and hit **Simulate**!
-4. When finished, click **Stop GPS** (or reconnect anytime and click **Stop GPS** to restore real hardware GPS immediately).
-5. **Want 100% Untethered On-Device iOS Simulation?** Read the [**Instruction Guide**](https://geoport.me/guide.html) and [**Register for the iOS Waitlist**](https://geoport.me/ios.html#waitlist)!
+<!-- TODO: 替换成你的 Buy Me a Coffee / 爱发电链接 -->
+[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=☕&slug=YOUR_BMC_USERNAME&button_colour=FFDD00&font_colour=000000&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/YOUR_BMC_USERNAME)
 
----
-
-## 🙏 Credits & Tech Stack
-
-GeoPort v5 is built with Python, Flask, Socket.IO, Leaflet, OpenStreetMap, and the incredible open-source iOS tooling ecosystem:
-
-- [**pymobiledevice3**](https://github.com/doronz88/pymobiledevice3) & `pmd-pytcp` by [@doronz88](https://github.com/doronz88) — powering pure-userspace CoreDevice RSD tunnels and iOS service communication
-- [**iFakeLocation**](https://github.com/master131/iFakeLocation) — original inspiration for browser-based location simulation
-
----
-
-## 🍺 Pay It Forward
-
-If GeoPort helps you out, please consider buying me a beer so I can keep supporting new iOS versions, platforms, and features!
-
-<p align="center">
-  <a href="https://buymeacoffee.com/davesc63">
-    <img src="https://raw.githubusercontent.com/davesc63/GeoPort/main/images/buy-me-a-beer.png" alt="Buy me a beer" height="50">
-  </a>
-</p>
+也欢迎支持上游原作者 [davesc63](https://www.buymeacoffee.com/davesc63) —— 没有他的 GeoPort，就没有这个项目。

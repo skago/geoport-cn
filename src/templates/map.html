@@ -8,10 +8,11 @@
     <script src="https://cdn.jsdelivr.net/npm/whatwg-fetch@3.6.2/dist/fetch.umd.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-providers@2.0.0/leaflet-providers.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.9.2/dist/proj4.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proj4leaflet@1.0.2/src/proj4leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-geosearch@3.0.0/dist/geosearch.umd.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
     <!-- <script src="https://cdn.jsdelivr.net/npm/leaflet-geojson-export@2.1.1/dist/leaflet-geojson-export.min.js"></script> -->
@@ -77,6 +78,50 @@
             width: 100%;
             height: 500px;
             max-height: 70vh;
+        }
+
+        #mapBaidu {
+            width: 100%;
+            height: 500px;
+            max-height: 70vh;
+        }
+
+        /* 历史/收藏列表 */
+        .location-list {
+            list-style: none;
+            padding-left: 0;
+            margin-bottom: 12px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .location-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 6px;
+            border-bottom: 1px solid #eee;
+            gap: 6px;
+        }
+        .location-list li:hover {
+            background-color: #f5f5f5;
+        }
+        .location-list .loc-label {
+            cursor: pointer;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: left;
+        }
+        .location-list .loc-meta {
+            color: #888;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+        .location-list .loc-btn {
+            padding: 0 6px;
+            font-size: 12px;
+            line-height: 20px;
         }
 
         .coordinates-container {
@@ -381,6 +426,7 @@ body.dark-mode .modal-footer button {
 	<div id="dataList" class="mb-3"></div>
         </form>
 	<div id="map"></div>
+	<div id="mapBaidu" style="display:none;"></div>
 
 <script>
 //=========================== leaflet menu ====================
@@ -620,6 +666,320 @@ var velocitySelect = 'walk';
 let isDrawingMode = false; // Flag to track drawing mode
 
 
+//=========================== 地图源切换 & 坐标纠偏 =========================
+// 业务坐标一律使用 WGS-84（iPhone 需要的坐标系）。
+// 高德瓦片内容按 GCJ-02 绘制、百度瓦片按 BD-09，显示时需要偏移转换。
+// 百度瓦片的切片网格与标准 XYZ 不同，必须使用专用 CRS 地图实例（mapBaidu）。
+
+// ---- WGS-84 <-> GCJ-02 <-> BD-09 坐标转换（eviltransform 标准算法）----
+function outOfChina(lat, lng) {
+    return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+}
+function transformLat(x, y) {
+    var ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+    ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+    return ret;
+}
+function transformLng(x, y) {
+    var ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+    ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+    return ret;
+}
+var EE = 0.00669342162296594323; // 偏心率平方
+function wgs2gcj(lat, lng) {
+    if (outOfChina(lat, lng)) return { lat: lat, lng: lng };
+    var dLat = transformLat(lng - 105.0, lat - 35.0);
+    var dLng = transformLng(lng - 105.0, lat - 35.0);
+    var radLat = lat / 180.0 * Math.PI;
+    var magic = Math.sin(radLat);
+    magic = 1 - EE * magic * magic;
+    var sqrtMagic = Math.sqrt(magic);
+    dLat = (dLat * 180.0) / ((6378245.0 / sqrtMagic) * (1 - EE) / (magic * sqrtMagic) * Math.PI);
+    dLng = (dLng * 180.0) / (6378245.0 / sqrtMagic * Math.cos(radLat) * Math.PI);
+    return { lat: lat + dLat, lng: lng + dLng };
+}
+function gcj2wgs(lat, lng) {
+    if (outOfChina(lat, lng)) return { lat: lat, lng: lng };
+    // 迭代近似求逆，两次迭代精度 < 1m
+    var wgsLat = lat, wgsLng = lng;
+    for (var i = 0; i < 2; i++) {
+        var tmp = wgs2gcj(wgsLat, wgsLng);
+        wgsLat += lat - tmp.lat;
+        wgsLng += lng - tmp.lng;
+    }
+    return { lat: wgsLat, lng: wgsLng };
+}
+function gcj2bd(lat, lng) {
+    var z = Math.sqrt(lng * lng + lat * lat) + 0.00002 * Math.sin(lat * 3000.0 * Math.PI / 180.0);
+    var theta = Math.atan2(lat, lng) + 0.000003 * Math.cos(lng * 3000.0 * Math.PI / 180.0);
+    return { lat: z * Math.sin(theta) + 0.006, lng: z * Math.cos(theta) + 0.0065 };
+}
+function bd2gcj(lat, lng) {
+    var x = lng - 0.0065, y = lat - 0.006;
+    var z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * 3000.0 * Math.PI / 180.0);
+    var theta = Math.atan2(y, x) - 0.000003 * Math.cos(x * 3000.0 * Math.PI / 180.0);
+    return { lat: z * Math.sin(theta), lng: z * Math.cos(theta) };
+}
+function wgs2bd(lat, lng) { var g = wgs2gcj(lat, lng); return gcj2bd(g.lat, g.lng); }
+function bd2wgs(lat, lng) { var g = bd2gcj(lat, lng); return gcj2wgs(g.lat, g.lng); }
+
+// ---- 地图源状态 ----
+// currentSourceKey: 'amap' | 'amap_sat' | 'baidu' | 'google' | 'google_sat' | 'other'
+// currentMapSource: 坐标系 'amap' | 'baidu' | 'google' | null(null = 原生控件里的国际源，显示坐标即 WGS)
+var currentSourceKey = 'amap';
+var currentMapSource = null;
+var currentWgs = null;          // 当前业务坐标（WGS-84）
+var baiduMap = null;            // 百度专用地图（L.CRS.Baidu）
+var baiduMirrorGroup = null;    // 百度地图上的业务图层镜像
+var mapABaseLayer = null;       // mapA 上当前的 base 图层
+var overlayRegistry = [];       // drawnItems 图层的 WGS 坐标快照，用于显示纠偏与百度镜像
+var BAIDU_ZOOM_OFFSET = 0.7435; // 百度 zoom 与标准 XYZ zoom 的换算差
+
+var SOURCE_LABELS = {
+    amap: '高德地图',
+    amap_sat: '高德卫星',
+    baidu: '百度地图',
+    google: 'Google 地图',
+    google_sat: 'Google 卫星',
+    other: '其他国际源'
+};
+
+// mapA 上的快速底图层（高德/Google 由"地图源"下拉切换；国际源走原生图层控件）
+var mapABaseLayers = {};
+function switchMapABaseLayer(sourceId) {
+    var newLayer = mapABaseLayers[sourceId] || mapABaseLayers.amap;
+    if (mapABaseLayer && mapABaseLayer !== newLayer && map.hasLayer(mapABaseLayer)) {
+        map.removeLayer(mapABaseLayer);
+    }
+    if (!map.hasLayer(newLayer)) newLayer.addTo(map);
+    mapABaseLayer = newLayer;
+}
+
+function getActiveMap() {
+    return (currentMapSource === 'baidu' && baiduMap) ? baiduMap : map;
+}
+function toDisplayCoords(lat, lng) {
+    if (currentMapSource === 'amap') return wgs2gcj(lat, lng);
+    if (currentMapSource === 'baidu') return wgs2bd(lat, lng);
+    return { lat: lat, lng: lng };
+}
+function toWgsCoords(lat, lng) {
+    if (currentMapSource === 'amap') return gcj2wgs(lat, lng);
+    if (currentMapSource === 'baidu') return bd2wgs(lat, lng);
+    return { lat: lat, lng: lng };
+}
+
+// 把业务 marker 渲染到当前激活地图上（显示坐标自动纠偏）
+function renderBusinessMarker(editableActive) {
+    if (!currentWgs) return;
+    var activeMap = getActiveMap();
+    var disp = toDisplayCoords(currentWgs.lat, currentWgs.lng);
+    if (marker && marker._map === activeMap) {
+        marker.setLatLng([disp.lat, disp.lng]);
+        return;
+    }
+    if (marker) marker.remove();
+    marker = L.marker([disp.lat, disp.lng], { draggable: true }).addTo(activeMap);
+    marker.on('dragend', handleMarkerDragEnd);
+    marker.on('contextmenu', editableActive ? handleActiveMarkerRightClick : handleMarkerRightClick);
+    marker._isBusinessMarker = true;
+}
+
+// ---- drawnItems 图层注册：记录 WGS 快照（图层加入时坐标均为 WGS）----
+function snapshotWgsFromLayer(layer) {
+    if (layer instanceof L.Marker) {
+        return { kind: 'marker', latlngs: [[layer.getLatLng().lat, layer.getLatLng().lng]],
+                 props: (layer.feature && layer.feature.properties) || {} };
+    }
+    var latlngs = layer.getLatLngs();
+    var toArr = function (lls) {
+        return lls.map(function (ll) { return (ll instanceof L.LatLng) ? [ll.lat, ll.lng] : toArr(ll); });
+    };
+    return { kind: (layer instanceof L.Polygon) ? 'polygon' : 'polyline',
+             latlngs: toArr(latlngs), props: (layer.feature && layer.feature.properties) || {} };
+}
+function registerOverlay(layer) {
+    layer._wgsSnapshot = snapshotWgsFromLayer(layer);
+    overlayRegistry.push(layer);
+    applyOverlayDisplay(layer);
+}
+// 按当前地图源刷新某个 overlay 的显示坐标
+function applyOverlayDisplay(layer) {
+    if (!layer._wgsSnapshot) return;
+    var snap = layer._wgsSnapshot;
+    var conv = function (arr) {
+        return arr.map(function (p) {
+            return Array.isArray(p[0]) ? conv(p) : (function (d) { return [d.lat, d.lng]; })(toDisplayCoords(p[0], p[1]));
+        });
+    };
+    if (snap.kind === 'marker') {
+        var d = toDisplayCoords(snap.latlngs[0][0], snap.latlngs[0][1]);
+        layer.setLatLng([d.lat, d.lng]);
+    } else {
+        layer.setLatLngs(conv(snap.latlngs));
+    }
+}
+function applyAllOverlaysDisplay() {
+    overlayRegistry.forEach(applyOverlayDisplay);
+}
+// 百度地图镜像（只读展示）
+function renderBaiduMirror() {
+    if (!baiduMap) return;
+    if (baiduMirrorGroup) { baiduMap.removeLayer(baiduMirrorGroup); baiduMirrorGroup = null; }
+    baiduMirrorGroup = L.layerGroup().addTo(baiduMap);
+    overlayRegistry.forEach(function (layer) {
+        var snap = layer._wgsSnapshot;
+        if (!snap) return;
+        var bd = function (arr) {
+            return arr.map(function (p) {
+                return Array.isArray(p[0]) ? bd(p) : (function (d) { return [d.lat, d.lng]; })(wgs2bd(p[0], p[1]));
+            });
+        };
+        if (snap.kind === 'marker') {
+            var d = wgs2bd(snap.latlngs[0][0], snap.latlngs[0][1]);
+            L.marker([d.lat, d.lng], { icon: orangeIcon }).addTo(baiduMirrorGroup);
+        } else {
+            var latlngs = bd(snap.latlngs).map(function (p) { return L.latLng(p[0], p[1]); });
+            if (snap.kind === 'polygon') {
+                L.polygon(latlngs, { color: 'orange', fillOpacity: 0.1, weight: 2 }).addTo(baiduMirrorGroup);
+            } else {
+                L.polyline(latlngs, { color: 'orange', opacity: 1.0, weight: 2 }).addTo(baiduMirrorGroup);
+            }
+        }
+    });
+    // GPX 回放中的动态 marker
+    if (gpxMarker && lineLatLngs.length) {
+        var idx = Math.min(playbackIndex, lineLatLngs.length - 1);
+        var p = wgs2bd(lineLatLngs[idx][0], lineLatLngs[idx][1]);
+        L.marker([p.lat, p.lng], { icon: orangeIcon }).addTo(baiduMirrorGroup);
+    }
+}
+function clearOverlays() {
+    overlayRegistry = [];
+    if (baiduMirrorGroup && baiduMap) { baiduMap.removeLayer(baiduMirrorGroup); baiduMirrorGroup = null; }
+}
+
+// ---- 视图同步 ----
+function getEquivalentBaiduZoom(xyzZoom) { return xyzZoom + BAIDU_ZOOM_OFFSET; }
+function getEquivalentXyzZoom(baiduZoom) { return baiduZoom - BAIDU_ZOOM_OFFSET; }
+
+// 读取当前激活地图的中心（转成 WGS）与等效 XYZ zoom
+function getCurrentViewWgs() {
+    var activeMap = getActiveMap();
+    var c = activeMap.getCenter();
+    var wgs = toWgsCoords(c.lat, c.lng);
+    var zoom = activeMap.getZoom();
+    if (activeMap === baiduMap) zoom = getEquivalentXyzZoom(zoom);
+    return { lat: wgs.lat, lng: wgs.lng, zoom: Math.round(zoom) };
+}
+
+// ---- 百度专用地图 ----
+var BAIDU_PROJ_DEF = '+proj=merc +a=6378206 +b=6356584.314245179 +lat_ts=0.0 +lon_0=0.0 +x_0=0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext +no_defs';
+function ensureBaiduMap() {
+    if (baiduMap) return baiduMap;
+    if (typeof L.Proj === 'undefined' || typeof proj4 === 'undefined') {
+        alert('百度地图组件（proj4leaflet）加载失败，请检查网络后刷新页面');
+        return null;
+    }
+    L.CRS.Baidu = new L.Proj.CRS('EPSG:900913', BAIDU_PROJ_DEF, {
+        resolutions: (function () {
+            var res = [], i;
+            res[0] = Math.pow(2, 18);
+            for (i = 1; i < 19; i++) res[i] = Math.pow(2, 18 - i);
+            return res;
+        })(),
+        origin: [0, 0],
+        bounds: L.bounds([20037508.342789244, 0], [0, 20037508.342789244])
+    });
+    baiduMap = L.map('mapBaidu', {
+        crs: L.CRS.Baidu,
+        keyboard: false,
+        zoomSnap: 0.25,
+        zoomDelta: 1
+    });
+    L.tileLayer('http://online{s}.map.bdimg.com/onlinelabel/?qt=tile&x={x}&y={y}&z={z}&styles=pl&scaler=1&p=1', {
+        subdomains: '0123',
+        tms: true,
+        maxZoom: 18,
+        minZoom: 3,
+        attribution: '&copy; Baidu Maps'
+    }).addTo(baiduMap);
+    baiduMap.setView([39.9042, 116.4074], 4 + BAIDU_ZOOM_OFFSET);
+    baiduMap.on('dblclick', function (e) { handleMapDoubleClick(e); });
+    baiduMap.on('click', function (e) { if (isDrawingMode) handleMapClick(e); });
+    return baiduMap;
+}
+
+// ---- 切换地图源 ----
+function setMapSource(sourceId, opts) {
+    opts = opts || {};
+    var source = (sourceId && sourceId.indexOf('_') > 0) ? sourceId.split('_')[0] : sourceId;
+    if (sourceId === 'other') source = null;
+    var isBaidu = (sourceId === 'baidu');
+    // 必须在改 currentMapSource 之前读取当前视图（此时 toWgsCoords 还匹配旧地图源）
+    var prevView = getCurrentViewWgs();
+    currentMapSource = isBaidu ? 'baidu' : source;
+    currentSourceKey = sourceId || 'other';
+    localStorage.setItem('geoport_map_source', currentSourceKey);
+
+    if (isBaidu) {
+        var view = prevView;
+        var created = ensureBaiduMap();
+        if (!created) { currentSourceKey = 'amap'; currentMapSource = 'amap'; syncSourceSelectorUI(); return; }
+        document.getElementById('map').style.display = 'none';
+        document.getElementById('mapBaidu').style.display = 'block';
+        setTimeout(function () {
+            created.invalidateSize();
+            var d = toDisplayCoords(view.lat, view.lng);
+            created.setView([d.lat, d.lng], getEquivalentBaiduZoom(view.zoom));
+            renderBusinessMarker(false);
+            renderBaiduMirror();
+        }, 10);
+    } else {
+        if (baiduMap) {
+            if (baiduMirrorGroup) { baiduMap.removeLayer(baiduMirrorGroup); baiduMirrorGroup = null; }
+            document.getElementById('mapBaidu').style.display = 'none';
+        }
+        document.getElementById('map').style.display = 'block';
+        if (!opts.fromNative) switchMapABaseLayer(sourceId);
+        setTimeout(function () {
+            map.invalidateSize();
+            var d = toDisplayCoords(prevView.lat, prevView.lng);
+            map.setView([d.lat, d.lng], prevView.zoom);
+            renderBusinessMarker(false);
+            applyAllOverlaysDisplay();
+            if (gpxMarker && lineLatLngs.length) {
+                var idx = Math.min(playbackIndex, lineLatLngs.length - 1);
+                var dp = toDisplayCoords(lineLatLngs[idx][0], lineLatLngs[idx][1]);
+                gpxMarker.setLatLng([dp.lat, dp.lng]);
+            }
+        }, 10);
+    }
+    syncSourceSelectorUI();
+}
+
+function syncSourceSelectorUI() {
+    var sel = document.getElementById('mapSourceSelect');
+    if (!sel) return;
+    sel.value = currentSourceKey || 'other';
+}
+
+// 原生图层控件切换时同步坐标系状态（国际源 → wgs，无偏移）
+function onNativeBaseLayerChange(e) {
+    var id = (e.layer && e.layer.options && e.layer.options._sourceId) || 'other';
+    setMapSource(id, { fromNative: true });
+}
+
+function onMapSourceSelectChange() {
+    var key = document.getElementById('mapSourceSelect').value;
+    if (key === 'other') key = null;
+    setMapSource(key, { force: true });
+}
+
 // Initialize the map
 async function initializeMap(userLocale) {
     var userLocale = "{{ user_locale }}";
@@ -708,6 +1068,47 @@ async function initializeMap(userLocale) {
         maxZoom: 20
     });
 
+    // 高德图层（GCJ-02 内容，显示时由坐标纠偏逻辑处理）
+    var amapStreetLayer = L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+        subdomains: '1234',
+        maxZoom: 18,
+        minZoom: 3,
+        _sourceId: 'amap',
+        attribution: '&copy; <a href="https://www.amap.com/">高德地图 AutoNavi</a>'
+    });
+    var amapSatelliteLayer = L.layerGroup([
+        L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+            subdomains: '1234', maxZoom: 18, minZoom: 3, _sourceId: 'amap_sat'
+        }),
+        L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=3&x={x}&y={y}&z={z}', {
+            subdomains: '1234', maxZoom: 18, minZoom: 3, _sourceId: 'amap_sat'
+        })
+    ]);
+    amapSatelliteLayer.options = amapSatelliteLayer.options || {};
+    amapSatelliteLayer.options._sourceId = 'amap_sat';
+
+    // Google 图层（国际版瓦片，WGS-84，无需纠偏）
+    var googleStreetLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}', {
+        subdomains: '0123',
+        maxZoom: 20,
+        minZoom: 3,
+        _sourceId: 'google',
+        attribution: '&copy; Google'
+    });
+    var googleSatelliteLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&hl=zh-CN&x={x}&y={y}&z={z}', {
+        subdomains: '0123',
+        maxZoom: 20,
+        minZoom: 3,
+        _sourceId: 'google_sat',
+        attribution: '&copy; Google'
+    });
+
+    mapABaseLayers.amap = amapStreetLayer;
+    mapABaseLayers.amap_sat = amapSatelliteLayer;
+    mapABaseLayers.google = googleStreetLayer;
+    mapABaseLayers.google_sat = googleSatelliteLayer;
+    mapABaseLayers.stadia = stadiaTileLayer;
+
     // Use searchLocation to get coordinates based on userLocale
     await searchLocation(userLocale);
 
@@ -716,19 +1117,12 @@ async function initializeMap(userLocale) {
     // Set the zoom level to 4
     map.setZoom(4);
 
-    // // Use Stadia Maps as the tile layer
-    // L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png', {
-    //     maxZoom: 19,
-    //     noWrap: true, // Prevent tiles from wrapping around the world
-    //     attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> contributors'
-    // }).addTo(map);
-
-
-    // Add default tile layer
-    stadiaTileLayer.addTo(map);
-
     // Define tile layer control options
     var baseLayers = {
+        "高德地图": amapStreetLayer,
+        "高德卫星": amapSatelliteLayer,
+        "Google 地图": googleStreetLayer,
+        "Google 卫星": googleSatelliteLayer,
         "Stadia Maps": stadiaTileLayer,
         "OpenStreetMap": openStreetMapTileLayer,
         "OpenStreetMap_HOT": OpenStreetMap_HOT,
@@ -743,13 +1137,25 @@ async function initializeMap(userLocale) {
         "Esri World Street Map": Esri_WorldStreetMap,
         "Esri World Topo Map": Esri_WorldTopoMap,
         "Esri World Imagery": Esri_WorldImagery,
-        "CartoDB Voyager": CartoDB_Voyager,
-
-
+        "CartoDB Voyager": CartoDB_Voyager
     };
 
     // Add layer control to map
     L.control.layers(baseLayers).addTo(map);
+
+    // 原生图层控件切换时同步坐标系状态（高德/Google 有标记，国际源无标记 → wgs）
+    map.on('baselayerchange', onNativeBaseLayerChange);
+
+    // 恢复上次的地图源（默认高德，国内可用性最好）
+    var savedSource = localStorage.getItem('geoport_map_source');
+    if (savedSource === 'baidu') {
+        setMapSource('baidu');
+    } else {
+        switchMapABaseLayer('amap');
+        currentSourceKey = 'amap';
+        currentMapSource = 'amap';
+        syncSourceSelectorUI();
+    }
 
 
 
@@ -846,28 +1252,49 @@ function leafletToGeoJSON() {
     // Check if the "drawnItems" layer group exists
     if (drawnItemsLayer) {
         drawnItemsLayer.eachLayer(function(layer) {
+            // 导出一律使用 WGS-84 快照（图层上是显示坐标，高德/百度源下有偏移）
+            var snap = layer._wgsSnapshot;
             // Check if the layer is a marker
             if (layer instanceof L.Marker) {
                 var properties = layer.feature ? layer.feature.properties : {}; // Get marker properties
+                var lat, lng;
+                if (snap && snap.kind === 'marker') {
+                    lat = snap.latlngs[0][0]; lng = snap.latlngs[0][1];
+                } else {
+                    var w = toWgsCoords(layer.getLatLng().lat, layer.getLatLng().lng);
+                    lat = w.lat; lng = w.lng;
+                }
 
                 geojson.features.push({
                     type: "Feature",
                     geometry: {
                         type: "Point",
-                        coordinates: [layer.getLatLng().lng, layer.getLatLng().lat]
+                        coordinates: [lng, lat]
                     },
                     properties: properties // Add marker properties
                 });
             }
             // Check if the layer is a polyline
             else if (layer instanceof L.Polyline) {
+                var coords;
+                if (snap && snap.kind !== 'marker') {
+                    var flat = [];
+                    var walk = function (arr) {
+                        arr.forEach(function (p) { Array.isArray(p[0]) ? walk(p) : flat.push([p[1], p[0]]); });
+                    };
+                    walk(snap.latlngs);
+                    coords = flat;
+                } else {
+                    coords = layer.getLatLngs().map(function(coord) {
+                        var w = toWgsCoords(coord.lat, coord.lng);
+                        return [w.lng, w.lat];
+                    });
+                }
                 geojson.features.push({
                     type: "Feature",
                     geometry: {
                         type: "LineString",
-                        coordinates: layer.getLatLngs().map(function(coord) {
-                            return [coord.lng, coord.lat];
-                        })
+                        coordinates: coords
                     },
                     properties: {
                         // You can add any additional properties here
@@ -1175,6 +1602,7 @@ customButton.classList.add('leaflet-control-filelayer-custom');
 // Function to clear GPX data
 customButton.onclick = function() {
     drawnItems.clearLayers(); // Clear layers from map including the textbox
+    clearOverlays(); // 清空 WGS 快照与百度镜像
     lineLatLngs = []; // Clear array storing coordinates
     isPlaybackStopped = true; // Stop playback if active
     playbackIndex = 0;
@@ -1218,12 +1646,18 @@ function processNextPoint() {
     const [lat, lng] = lineLatLngs[playbackIndex]; // Get coordinates for current point
     console.log(`Processing point ${playbackIndex + 1} of ${lineLatLngs.length}: (${lat}, ${lng})`); // Log current point
 
-    if (!gpxMarker || !map.hasLayer(gpxMarker)) {
-        // Create marker if it doesn't exist or has been removed
-        gpxMarker = L.marker([lat, lng], { icon: orangeIcon }).addTo(drawnItems);
+    if (currentMapSource === 'baidu') {
+        // 百度地图上通过镜像图层展示回放进度
+        renderBaiduMirror();
     } else {
-        // Update marker position
-        gpxMarker.setLatLng([lat, lng]);
+        const disp = toDisplayCoords(lat, lng);
+        if (!gpxMarker || !map.hasLayer(gpxMarker)) {
+            // Create marker if it doesn't exist or has been removed
+            gpxMarker = L.marker([disp.lat, disp.lng], { icon: orangeIcon }).addTo(drawnItems);
+        } else {
+            // Update marker position
+            gpxMarker.setLatLng([disp.lat, disp.lng]);
+        }
     }
 
     setCoordinates(lat, lng); // Set coordinates
@@ -1268,8 +1702,13 @@ function calculateRoute(startPoint, endPoint) {
         var route = e.routes[0];
         // Extract the coordinates from the route
         var coordinates = route.coordinates;
-        // Draw the polyline using the coordinates
-        var polyline = L.polyline(coordinates, {color: 'blue'}).addTo(drawnItems);
+        // 按当前地图源纠偏后绘制（业务坐标仍为 WGS）
+        var dispCoords = coordinates.map(function (c) {
+            var d = toDisplayCoords(c.lat, c.lng);
+            return [d.lat, d.lng];
+        });
+        var polyline = L.polyline(dispCoords, {color: 'blue'}).addTo(drawnItems);
+        registerOverlay(polyline);
     }).addTo(drawnItems);
 }
 
@@ -1277,6 +1716,7 @@ function calculateRoute(startPoint, endPoint) {
 // Function to clear all polylines from the map
 function clearPolylines() {
     drawnItems.clearLayers(); // Remove all layers from the drawnItems layer
+    clearOverlays(); // 清空 WGS 快照与百度镜像
     lineLatLngs = []; // Clear the array storing coordinates
 }
 
@@ -1370,7 +1810,7 @@ function sendGPXToBackend() {
 
 // Function to create a marker with all necessary event listeners
 function createMarker(latlng) {
-    marker = L.marker(latlng, { draggable: true }).addTo(map);
+    marker = L.marker(latlng, { draggable: true }).addTo(getActiveMap());
     marker.on('dragend', handleMarkerDragEnd);
     marker.on('contextmenu', handleMarkerRightClick); // Add event listener for marker right-click
     return marker;
@@ -1380,13 +1820,16 @@ function createMarker(latlng) {
 // Function to create a new marker on double click
 function handleMapDoubleClick(e) {
     // Disable double-click zooming
-    map.doubleClickZoom.disable();
+    var eventMap = e.target || getActiveMap();
+    eventMap.doubleClickZoom.disable();
     if (!marker)
         marker = createMarker(e.latlng); // Create a new marker
     else
         marker.setLatLng(e.latlng);
 
-    setCoordinates(e.latlng.lat, e.latlng.lng);
+    // e.latlng 是地图显示坐标（高德/百度源下已偏移），业务坐标需转回 WGS-84
+    var wgs = toWgsCoords(e.latlng.lat, e.latlng.lng);
+    setCoordinates(wgs.lat, wgs.lng);
 
     // Add the right-click event listener to the active marker
     marker.on('contextmenu', handleActiveMarkerRightClick);
@@ -1396,7 +1839,8 @@ function handleMapDoubleClick(e) {
 function handleMarkerDragEnd(event) {
     const newLat = event.target.getLatLng().lat;
     const newLng = event.target.getLatLng().lng;
-    setCoordinates(newLat, newLng);
+    const wgs = toWgsCoords(newLat, newLng);
+    setCoordinates(wgs.lat, wgs.lng);
 }
 
 
@@ -1416,8 +1860,9 @@ let currentLayer = null;
 
 
 
-// Function to set coordinates
+// Function to set coordinates (lat/lng 始终为 WGS-84 业务坐标)
 function setCoordinates(lat, lng) {
+    currentWgs = { lat: parseFloat(lat), lng: parseFloat(lng) };
     document.getElementById('coordinates').value = lat + ', ' + lng;
     updateSetLocationButtonStatus();
     updateStopLocationButtonStatus(); // Add this line to update the Stop Location button status
@@ -1447,15 +1892,20 @@ async function searchLocation(input, userLocale) {
         const results = await provider.search({ query: input });
         if (results.length > 0) {
             const { x, y } = results[0];
-            if (!marker) {
-                marker = L.marker([y, x], { draggable: true }).addTo(map);
+            // x/y 为 WGS-84 业务坐标；显示位置按当前地图源纠偏
+            const disp = toDisplayCoords(parseFloat(y), parseFloat(x));
+            const activeMap = getActiveMap();
+            const zoom = (activeMap === baiduMap) ? 13 + BAIDU_ZOOM_OFFSET : 13;
+            if (!marker || marker._map !== activeMap) {
+                if (marker) marker.remove();
+                marker = L.marker([disp.lat, disp.lng], { draggable: true }).addTo(activeMap);
                 marker.on('dragend', handleMarkerDragEnd); // Add event listener for marker drag
                 marker.on('contextmenu', handleMarkerRightClick); // Add event listener for marker right-click
 
             } else {
-                marker.setLatLng([y, x]);
+                marker.setLatLng([disp.lat, disp.lng]);
             }
-            map.setView([y, x], 13);
+            activeMap.setView([disp.lat, disp.lng], zoom);
             setCoordinates(y, x);
         } else {
             alert("No results found for the provided location");
@@ -1469,13 +1919,19 @@ async function searchLocation(input, userLocale) {
 // Add previously saved GeoJSON or loaded file to map, and allow editing?
 function onEachFeature(feature, layer) {
     drawnItems.addLayer(layer); // Add the layer to the drawnItems group
+    registerOverlay(layer); // 记录 WGS 快照并按当前地图源纠偏显示
 
     // Store latlngs for lines (polylines)
-    if (layer instanceof L.Polyline) {
-                layer.getLatLngs().forEach(function(latLng) {
-                    lineLatLngs.push([latLng.lat, latLng.lng]);
-                });
-            }
+    // 注意：图层上的坐标已被纠偏为显示坐标，回放业务数据必须使用 WGS 快照
+    if (layer._wgsSnapshot && layer._wgsSnapshot.kind !== 'marker') {
+        var pushLatLngs = function (arr) {
+            arr.forEach(function (p) {
+                if (Array.isArray(p[0])) pushLatLngs(p);
+                else lineLatLngs.push([p[0], p[1]]);
+            });
+        };
+        pushLatLngs(layer._wgsSnapshot.latlngs);
+    }
             // You can also handle other types of features if needed
         console.log("latArray:", lineLatLngs);
 
@@ -1622,11 +2078,13 @@ function saveActiveMarker() {
     }
 
     // Create a GeoJSON feature for the active marker
+    // 坐标转回 WGS-84（marker 上是显示坐标，高德/百度源下有偏移）
+    const wgsPos = currentWgs || toWgsCoords(marker.getLatLng().lat, marker.getLatLng().lng);
     const newFeature = {
         type: "Feature",
         geometry: {
             type: "Point",
-            coordinates: [marker.getLatLng().lng, marker.getLatLng().lat]
+            coordinates: [wgsPos.lng, wgsPos.lat]
         },
         properties: {
             name: newNameInput.value,
@@ -1719,7 +2177,8 @@ function simulateGPXPlayback(lineLatLngs, velocity) {
     // Initialize variables
     let currentIndex = 0;
     console.log("currentindex: ", currentIndex);
-    let activeMarker = L.marker(lineLatLngs[currentIndex], { icon: orangeIcon }).addTo(drawnItems);
+    const startDisp = toDisplayCoords(lineLatLngs[currentIndex][0], lineLatLngs[currentIndex][1]);
+    let activeMarker = L.marker(startDisp, { icon: orangeIcon }).addTo(drawnItems);
 
     // Function to move to the next point
     function moveToNextPoint() {
@@ -1738,8 +2197,9 @@ function simulateGPXPlayback(lineLatLngs, velocity) {
         console.log("Next Coordinate - Lat:", lat, "Lon:", lon); // Log next coordinate
 
 
-        // Update marker position
-        activeMarker.setLatLng([lat, lon]);
+        // Update marker position (业务坐标 WGS → 显示坐标)
+        const disp = toDisplayCoords(lat, lon);
+        activeMarker.setLatLng([disp.lat, disp.lng]);
 
         // Calculate distance between current and next point
         const distance = calculateDistance(lineLatLngs[currentIndex - 1][0], lineLatLngs[currentIndex - 1][1], lat, lon);
@@ -2263,6 +2723,7 @@ function setLocationArrows() {
             .then(data => {
                 displayToast(data); // Display response as a toast
                 console.log('set_location response:', data);
+                refreshSavedLocations(); // 成功模拟后刷新历史记录
             })
             .catch(error => {
                 console.error('Error setting location:', error);
@@ -2285,6 +2746,195 @@ function setLocationArrows() {
             .catch(error => {
                 console.error('Error stopping location:', error);
             });
+    }
+
+    //=========================== 历史记录 & 收藏 =========================
+
+    function toggleLocationPanel() {
+        var panel = document.getElementById('locationPanel');
+        var show = panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) refreshSavedLocations();
+    }
+
+    function refreshSavedLocations() {
+        fetch('/api/locations')
+            .then(r => r.json())
+            .then(data => {
+                renderLocationList('favoritesList', data.favorites || [], true);
+                renderLocationList('historyList', data.history || [], false);
+            })
+            .catch(err => console.error('Error loading saved locations:', err));
+    }
+
+    function renderLocationList(listId, entries, isFavorites) {
+        var ul = document.getElementById(listId);
+        ul.innerHTML = '';
+        if (!entries.length) {
+            ul.innerHTML = '<li class="text-muted">暂无记录</li>';
+            return;
+        }
+        entries.forEach(function (entry) {
+            var li = document.createElement('li');
+
+            var label = document.createElement('span');
+            label.className = 'loc-label';
+            label.textContent = entry.label;
+            label.title = entry.label + ' (' + entry.lat + ', ' + entry.lng + ')';
+            label.onclick = function () { useSavedLocation(entry); };
+            li.appendChild(label);
+
+            var meta = document.createElement('span');
+            meta.className = 'loc-meta';
+            meta.textContent = entry.lat + ', ' + entry.lng;
+            li.appendChild(meta);
+
+            var actions = document.createElement('span');
+            var useBtn = document.createElement('button');
+            useBtn.type = 'button';
+            useBtn.className = 'btn btn-outline-primary btn-sm loc-btn';
+            useBtn.textContent = '使用';
+            useBtn.onclick = function () { useSavedLocation(entry); };
+            actions.appendChild(useBtn);
+
+            if (isFavorites) {
+                var renameBtn = document.createElement('button');
+                renameBtn.type = 'button';
+                renameBtn.className = 'btn btn-outline-secondary btn-sm loc-btn';
+                renameBtn.textContent = '改名';
+                renameBtn.onclick = function () { renameFavorite(entry, label); };
+                actions.appendChild(renameBtn);
+
+                var delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'btn btn-outline-danger btn-sm loc-btn';
+                delBtn.textContent = '删除';
+                delBtn.onclick = function () { deleteFavorite(entry.id); };
+                actions.appendChild(delBtn);
+            } else {
+                var favBtn = document.createElement('button');
+                favBtn.type = 'button';
+                favBtn.className = 'btn btn-outline-warning btn-sm loc-btn';
+                favBtn.textContent = '收藏';
+                favBtn.onclick = function () { saveFavorite(entry.lat, entry.lng, entry.label); };
+                actions.appendChild(favBtn);
+            }
+
+            li.appendChild(actions);
+            ul.appendChild(li);
+        });
+    }
+
+    // 点击历史/收藏条目：填入坐标 + 移动 marker + 视图跟随
+    function useSavedLocation(entry) {
+        setCoordinates(entry.lat, entry.lng);
+        renderBusinessMarker(false);
+        var d = toDisplayCoords(entry.lat, entry.lng);
+        var activeMap = getActiveMap();
+        var zoom = (activeMap === baiduMap) ? 13 + BAIDU_ZOOM_OFFSET : 13;
+        activeMap.setView([d.lat, d.lng], zoom);
+    }
+
+    var pendingFavoriteCoords = null;
+
+    function addCurrentToFavorites() {
+        var input = document.getElementById('coordinates').value.trim();
+        if (!input) { alert('请先在地图上选点或输入坐标'); return; }
+        var parts = input.split(',').map(function (s) { return parseFloat(s.trim()); });
+        if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1]) ||
+            parts[0] < -90 || parts[0] > 90 || parts[1] < -180 || parts[1] > 180) {
+            alert('坐标格式无法识别，请使用 "纬度, 经度" 格式');
+            return;
+        }
+        pendingFavoriteCoords = { lat: parts[0], lng: parts[1] };
+        var panel = document.getElementById('locationPanel');
+        if (panel.style.display === 'none') toggleLocationPanel();
+        document.getElementById('favAddRow').style.display = 'flex';
+        var labelInput = document.getElementById('favLabelInput');
+        labelInput.value = '';
+        labelInput.focus();
+    }
+
+    function confirmAddFavorite() {
+        if (!pendingFavoriteCoords) { cancelAddFavorite(); return; }
+        var label = document.getElementById('favLabelInput').value;
+        saveFavorite(pendingFavoriteCoords.lat, pendingFavoriteCoords.lng, label);
+        cancelAddFavorite();
+    }
+
+    function cancelAddFavorite() {
+        pendingFavoriteCoords = null;
+        document.getElementById('favAddRow').style.display = 'none';
+    }
+
+    function saveFavorite(lat, lng, label) {
+        fetch('/api/favorites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: lat, lng: lng, label: label })
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.error) { alert(res.error); return; }
+                displayToast(res.duplicate ? '收藏已存在' : '收藏成功');
+                refreshSavedLocations();
+            })
+            .catch(err => console.error('Error saving favorite:', err));
+    }
+
+    function deleteFavorite(id) {
+        fetch('/api/favorites/' + id, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.error) { alert(res.error); return; }
+                refreshSavedLocations();
+            })
+            .catch(err => console.error('Error deleting favorite:', err));
+    }
+
+    // 行内改名：label span 替换为输入框，Enter/失焦保存，Esc 取消
+    function renameFavorite(entry, labelSpan) {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.value = entry.label;
+        input.className = 'form-control form-control-sm';
+        labelSpan.replaceWith(input);
+        input.focus();
+        input.select();
+        var done = false;
+        var commit = function () {
+            if (done) return;
+            done = true;
+            var v = input.value.trim();
+            if (v && v !== entry.label) {
+                fetch('/api/favorites/' + entry.id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: v })
+                })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.error) { alert(res.error); }
+                        refreshSavedLocations();
+                    })
+                    .catch(err => console.error('Error renaming favorite:', err));
+            } else {
+                refreshSavedLocations();
+            }
+        };
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') input.blur();
+            if (e.key === 'Escape') { done = true; refreshSavedLocations(); }
+        });
+        input.addEventListener('blur', commit);
+    }
+
+    function clearLocationHistory() {
+        if (!confirm('确定清空全部历史记录？')) return;
+        fetch('/api/history', { method: 'DELETE' })
+            .then(r => r.json())
+            .then(res => refreshSavedLocations())
+            .catch(err => console.error('Error clearing history:', err));
     }
 
     // Function to enable or disable the Set Location button based on conditions
@@ -2492,6 +3142,13 @@ function continueAfterDeveloperModeRequired() {
     document.getElementById('rsdData').addEventListener('change', updateSetLocationButtonStatus);
     document.getElementById('coordinates').addEventListener('input', updateSetLocationButtonStatus);
     populateDeviceList();
+    refreshSavedLocations(); // 预加载历史与收藏
+    document.getElementById('favLabelInput').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            confirmAddFavorite();
+        }
+    });
     updateStopLocationButtonStatus();  // Add this line to update the Stop Location button status
     // Add event listener for keydown event
     document.addEventListener('keydown', handleKeyDown);
@@ -2521,6 +3178,26 @@ function continueAfterDeveloperModeRequired() {
 
 <p></p>
 
+<!-- 地图源选择 -->
+<div class="mb-3">
+    <div class="row align-items-center">
+        <div class="col-md-auto">
+            <label class="mb-0" for="mapSourceSelect">地图源:</label>
+        </div>
+        <div class="col">
+            <select class="custom-select" id="mapSourceSelect" onchange="onMapSourceSelectChange()">
+                <option value="amap">高德地图（国内推荐）</option>
+                <option value="amap_sat">高德卫星</option>
+                <option value="baidu">百度地图</option>
+                <option value="google">Google 地图</option>
+                <option value="google_sat">Google 卫星</option>
+                <option value="other">其他国际源（右上角图层控件选择）</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- 历史与收藏 -->
 <div class="mb-3">
     <div class="row align-items-center">
         <div class="col-md-auto">
@@ -2531,6 +3208,30 @@ function continueAfterDeveloperModeRequired() {
         </div>
         <div class="col-md-auto">
             <button type="button" class="btn btn-primary" id="search" onclick="handleSearch()">Search</button>
+        </div>
+    </div>
+</div>
+
+<div class="mb-3">
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleLocationPanel()">&#128337; 历史 / 收藏</button>
+    <button type="button" class="btn btn-sm btn-outline-warning" title="收藏当前输入框中的坐标" onclick="addCurrentToFavorites()">&#11088; 收藏当前坐标</button>
+    <div id="locationPanel" class="card mt-2" style="display: none;">
+        <div class="card-body p-2">
+            <h6 class="mb-1">&#11088; 收藏</h6>
+            <div id="favAddRow" class="input-group input-group-sm mb-2" style="display: none;">
+                <input type="text" id="favLabelInput" class="form-control" placeholder="收藏名称（可留空）">
+                <div class="input-group-append">
+                    <button class="btn btn-outline-success" type="button" onclick="confirmAddFavorite()">保存</button>
+                    <button class="btn btn-outline-secondary" type="button" onclick="cancelAddFavorite()">取消</button>
+                </div>
+            </div>
+            <ul id="favoritesList" class="location-list"><li class="text-muted">加载中…</li></ul>
+            <h6 class="mb-1">
+                &#128337; 历史
+                <button type="button" class="btn btn-link btn-sm p-0 ml-2" onclick="clearLocationHistory()">清空历史</button>
+            </h6>
+            <ul id="historyList" class="location-list"><li class="text-muted">加载中…</li></ul>
+            <small class="text-muted">提示：点击名称即可填入坐标；每次成功模拟后会自动记录历史。</small>
         </div>
     </div>
 </div>
@@ -2562,9 +3263,9 @@ function continueAfterDeveloperModeRequired() {
     </div>
 </div>
     <hr>
-Version: {{ app_version_num }}<br>
-Need help? Please see the <a href="https://github.com/davesc63/GeoPort/blob/main/FAQ.md" target="_blank">FAQ</a><br>
-Feedback? Please see the <a href="https://www.surveymonkey.com/r/5LJR2M5" target="_blank">Survey</a>
+Version: {{ app_version_num }} (Enhanced fork)<br>
+Need help? Please see the <a href="https://github.com/davesc63/GeoPort/blob/main/FAQ.md" target="_blank">FAQ</a> ·
+Fork of <a href="https://github.com/davesc63/GeoPort" target="_blank">GeoPort</a> by davesc63, licensed under GPL-3.0
 
 
 

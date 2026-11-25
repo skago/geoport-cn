@@ -2,8 +2,10 @@ import locale
 import os
 import re
 import sys
+import json
 import time
-import pyuac
+import math
+import uuid
 import psutil
 import signal
 import socket
@@ -16,9 +18,11 @@ import webbrowser
 import subprocess
 import pycountry
 
+if sys.platform == 'win32':
+    import pyuac  # Windows-only: UAC elevation helper
+
 from flask import Flask, jsonify, render_template, request
-from urllib3.exceptions import InsecureRequestWarning, ConnectionError
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from urllib3.exceptions import ConnectionError
 from contextlib import asynccontextmanager
 
 from pymobiledevice3.usbmux import list_devices
@@ -26,7 +30,7 @@ from pymobiledevice3.cli.mounter import auto_mount
 from pymobiledevice3.lockdown import create_using_usbmux, create_using_tcp, get_mobdev2_lockdowns
 from pymobiledevice3.services.amfi import AmfiService
 from pymobiledevice3.exceptions import DeviceHasPasscodeSetError, NoDeviceConnectedError
-from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocketProxyService
+from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 from pymobiledevice3.remote.utils import stop_remoted_if_required, resume_remoted_if_required, get_rsds
@@ -36,7 +40,11 @@ from pymobiledevice3.osu.os_utils import get_os_utils
 from pymobiledevice3.bonjour import DEFAULT_BONJOUR_TIMEOUT, browse_mobdev2
 from pymobiledevice3.pair_records import get_local_pairing_record, get_remote_pairing_record_filename, get_preferred_pair_record
 from pymobiledevice3.common import get_home_folder
-from pymobiledevice3.cli.remote import cli_install_wetest_drivers
+# Removed in newer pymobiledevice3 (WeTest driver hack for iOS 17.0-17.3.1 on Windows is obsolete)
+try:
+    from pymobiledevice3.cli.remote import cli_install_wetest_drivers
+except ImportError:
+    cli_install_wetest_drivers = None
 
 from pymobiledevice3.cli.remote import tunnel_task
 from pymobiledevice3.lockdown import LockdownClient
@@ -48,6 +56,7 @@ from pymobiledevice3.remote.common import TunnelProtocol
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-browser', action='store_true', help='Skip auto opening the browser')
 parser.add_argument('--port', type=int, help='Specify port number to listen on for web browser requests')
+parser.add_argument('--host', type=str, default='127.0.0.1', help='Address to serve the web UI on (default: 127.0.0.1)')
 parser.add_argument('--wifihost', type=str, help='Specify the wifi IP address to connect to')
 parser.add_argument('--udid', type=str, help='Specify the device udid to target')
 args = parser.parse_args()
@@ -102,11 +111,13 @@ pair_record = None
 error_message = None
 sudo_message = ""
 captured_output = None
-GITHUB_REPO = 'davesc63/GeoPort'
+# Update check / broadcast point to this fork's repo (falls back silently if unreachable).
+# Change this if you publish under a different GitHub path.
+GITHUB_REPO = 'skago/geoport-enhanced'
 CURRENT_VERSION_FILE = 'CURRENT_VERSION'
 BROADCAST_FILE = 'BROADCAST'
-APP_VERSION_NUMBER = "2.3.3"
-APP_VERSION_TYPE = "fuel"
+APP_VERSION_NUMBER = "5.0.3-enhanced.1"
+APP_VERSION_TYPE = "enhanced"
 terminate_tunnel_thread = False
 terminate_location_thread = False
 location_threads = []
@@ -138,7 +149,7 @@ if current_platform == "darwin":
 def fetch_api_data(api_url):
     global api_data
     try:
-        api_data = requests.get(api_url, verify=False).json()
+        api_data = requests.get(api_url, timeout=10).json()
         return api_data
     except requests.exceptions.RequestException as e:
         logger.error(f"Error: {e}")
@@ -343,15 +354,21 @@ def version_check(version_string):
         # Handle invalid version string or missing major/minor version
         return False
 
+_user_country_cache = None
+
 def get_user_country():
-    global user_locale
+    global user_locale, _user_country_cache
+    # Cache the result: this is called for every device on every device-list refresh
+    if _user_country_cache is not None:
+        return _user_country_cache
     try:
         # Attempt to get the user's country using locale and pycountry
         user_locale, _ = locale.getlocale()
 
         if user_locale is None:
             logger.warning("User locale is None. Defaulting to IP geolocation service.")
-            return get_country_from_ip()
+            _user_country_cache = get_country_from_ip()
+            return _user_country_cache
 
         country_code = user_locale.split('_')[-1]
         country = pycountry.countries.get(alpha_2=country_code)
@@ -360,9 +377,10 @@ def get_user_country():
         # If country_name is None, try IP geolocation service as a fallback
         if country_name is None:
             logger.warning("Failed to retrieve country name using locale. Using IP geolocation service.")
-            return get_country_from_ip()
+            _user_country_cache = get_country_from_ip()
         else:
-            return country_name
+            _user_country_cache = country_name
+        return _user_country_cache
 
     except Exception as e:
         logger.error(f"Error getting user country: {e}")
@@ -370,8 +388,19 @@ def get_user_country():
 
 
 def get_country_from_ip():
+    # Prefer an HTTPS geolocation service; fall back to ip-api.com (HTTP-only on the free tier)
     try:
-        response = requests.get("http://ip-api.com/json/")
+        response = requests.get("https://ipapi.co/json/", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            country_name = data.get("country_name")
+            if country_name:
+                return country_name
+    except Exception as e:
+        logger.warning(f"ipapi.co lookup failed: {e}")
+
+    try:
+        response = requests.get("http://ip-api.com/json/", timeout=10)
         if response.status_code == 200:
             data = response.json()
             country_name = data.get("country")
@@ -393,7 +422,10 @@ def get_devices_with_retry(max_attempts=10):
         logger.info(f"iOS Version: {ios_version}")
         if version_check(ios_version):
             logger.info("Windows Driver Install Required")
-            cli_install_wetest_drivers()
+            if cli_install_wetest_drivers is not None:
+                cli_install_wetest_drivers()
+            else:
+                logger.warning("WeTest driver installer unavailable in this pymobiledevice3 version - upgrade the device to iOS 17.4+ instead")
     for attempt in range(1, max_attempts + 1):
         try:
             devices = asyncio.run(get_rsds(timeout))
@@ -493,6 +525,151 @@ def update_location():
     global location
     location = f"{lat} {lng}"
     return 'Location updated successfully'
+
+
+#========= Saved Locations (History & Favorites) ========
+
+SAVED_LOCATIONS_FILE = os.path.join(home_dir, 'GeoPort', 'saved_locations.json')
+SAVED_LOCATIONS_LOCK = threading.Lock()
+HISTORY_MAX_ENTRIES = 100
+# Distance (meters) below which a new history entry updates the previous one
+# instead of creating a duplicate
+HISTORY_DEDUPE_DISTANCE = 50
+
+def load_saved_locations():
+    with SAVED_LOCATIONS_LOCK:
+        try:
+            with open(SAVED_LOCATIONS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get('history'), list) \
+                    and isinstance(data.get('favorites'), list):
+                return data
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+        return {'history': [], 'favorites': []}
+
+def save_saved_locations(data):
+    folder = os.path.dirname(SAVED_LOCATIONS_FILE)
+    os.makedirs(folder, exist_ok=True)
+    with SAVED_LOCATIONS_LOCK:
+        with open(SAVED_LOCATIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+def haversine_distance(lat1, lng1, lat2, lng2):
+    """Great-circle distance between two points in meters."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * 6371000 * math.asin(math.sqrt(a))
+
+def make_location_entry(lat, lng, label):
+    return {
+        'id': uuid.uuid4().hex[:12],
+        'lat': round(float(lat), 6),
+        'lng': round(float(lng), 6),
+        'label': (label or '').strip() or f"{round(float(lat), 6)}, {round(float(lng), 6)}",
+        'ts': int(time.time()),
+    }
+
+def record_location_history(lat, lng, label=None):
+    """Record a used location. Consecutive entries closer than
+    HISTORY_DEDUPE_DISTANCE meters update the existing entry (moves it to front)."""
+    data = load_saved_locations()
+    history = data.get('history', [])
+    entry = make_location_entry(lat, lng, label)
+
+    if history:
+        last = history[0]
+        if haversine_distance(last['lat'], last['lng'], entry['lat'], entry['lng']) \
+                < HISTORY_DEDUPE_DISTANCE:
+            entry['id'] = last['id']
+            history[0] = entry
+            data['history'] = history
+            save_saved_locations(data)
+            return
+
+    history.insert(0, entry)
+    data['history'] = history[:HISTORY_MAX_ENTRIES]
+    save_saved_locations(data)
+
+def find_favorite(data, favorite_id):
+    for entry in data.get('favorites', []):
+        if entry.get('id') == favorite_id:
+            return entry
+    return None
+
+@app.route('/api/locations')
+def get_saved_locations():
+    return jsonify(load_saved_locations())
+
+@app.route('/api/history', methods=['POST'])
+def add_history_entry():
+    try:
+        data = request.get_json(force=True) or {}
+        lat = float(data['lat'])
+        lng = float(data['lng'])
+        record_location_history(lat, lng, data.get('label'))
+        return jsonify({'success': True})
+    except (ValueError, TypeError, KeyError) as e:
+        return jsonify({'error': f'Invalid coordinates: {e}'}), 400
+
+@app.route('/api/history', methods=['DELETE'])
+def clear_history():
+    data = load_saved_locations()
+    data['history'] = []
+    save_saved_locations(data)
+    return jsonify({'success': True})
+
+@app.route('/api/favorites', methods=['POST'])
+def add_favorite():
+    try:
+        data = request.get_json(force=True) or {}
+        lat = float(data['lat'])
+        lng = float(data['lng'])
+    except (ValueError, TypeError, KeyError) as e:
+        return jsonify({'error': f'Invalid coordinates: {e}'}), 400
+
+    stored = load_saved_locations()
+    entry = make_location_entry(lat, lng, data.get('label'))
+
+    # Skip exact duplicates (same spot with the same label)
+    for existing in stored.get('favorites', []):
+        if existing['lat'] == entry['lat'] and existing['lng'] == entry['lng'] \
+                and existing['label'] == entry['label']:
+            return jsonify({'success': True, 'duplicate': True})
+
+    stored.setdefault('favorites', []).insert(0, entry)
+    save_saved_locations(stored)
+    return jsonify({'success': True})
+
+@app.route('/api/favorites/<favorite_id>', methods=['DELETE'])
+def delete_favorite(favorite_id):
+    stored = load_saved_locations()
+    favorites = stored.get('favorites', [])
+    kept = [entry for entry in favorites if entry.get('id') != favorite_id]
+    if len(kept) == len(favorites):
+        return jsonify({'error': 'Favorite not found'}), 404
+    stored['favorites'] = kept
+    save_saved_locations(stored)
+    return jsonify({'success': True})
+
+@app.route('/api/favorites/<favorite_id>', methods=['PUT'])
+def rename_favorite(favorite_id):
+    data = request.get_json(force=True) or {}
+    new_label = (data.get('label') or '').strip()
+    if not new_label:
+        return jsonify({'error': 'Label cannot be empty'}), 400
+
+    stored = load_saved_locations()
+    entry = find_favorite(stored, favorite_id)
+    if entry is None:
+        return jsonify({'error': 'Favorite not found'}), 404
+    entry['label'] = new_label
+    save_saved_locations(stored)
+    return jsonify({'success': True})
+
+#========= Saved Locations (History & Favorites) ========
 
 def check_pair_record(udid):
     global pair_record
@@ -984,22 +1161,24 @@ async def set_location_thread(latitude, longitude):
 
                 if ios_version is not None and is_major_version_17_or_greater(ios_version):
                     async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                        with DvtSecureSocketProxyService(sp_rsd) as dvt:
-                            LocationSimulation(dvt).set(latitude, longitude)
-                            logger.warning("Location Set Successfully")
-                            #OSUTILS.wait_return()
-                            while not terminate_location_thread:
-                                time.sleep(0.5)
+                        async with DvtProvider(sp_rsd) as dvt:
+                            async with LocationSimulation(dvt) as simulation:
+                                await simulation.set(float(latitude), float(longitude))
+                                logger.warning("Location Set Successfully")
+                                #OSUTILS.wait_return()
+                                while not terminate_location_thread:
+                                    await asyncio.sleep(0.5)
 
 
                 elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-                    with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
-                        LocationSimulation(dvt).clear()
-                        LocationSimulation(dvt).set(latitude, longitude)
-                        logger.warning("Location Set Successfully")
-                        #await asyncio.wait_for(OSUTILS.wait_return(), timeout=1)  # Adjust timeout as needed
-                        while not terminate_location_thread:
-                            time.sleep(0.5)
+                    async with DvtProvider(lockdown) as dvt:
+                        async with LocationSimulation(dvt) as simulation:
+                            await simulation.clear()
+                            await simulation.set(float(latitude), float(longitude))
+                            logger.warning("Location Set Successfully")
+                            #await asyncio.wait_for(OSUTILS.wait_return(), timeout=1)  # Adjust timeout as needed
+                            while not terminate_location_thread:
+                                await asyncio.sleep(0.5)
 
                 await asyncio.sleep(1)  # Adjust sleep time according to your requirements
 
@@ -1067,6 +1246,8 @@ def set_location():
             #asyncio.run(set_location_thread(latitude, longitude))
             start_set_location_thread(latitude, longitude)
 
+            record_location_history(float(latitude), float(longitude))
+
             return 'Location set successfully'
 
         elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
@@ -1078,6 +1259,7 @@ def set_location():
             #asyncio.run(set_location_thread(latitude, longitude))
             start_set_location_thread(latitude, longitude)
 
+            record_location_history(float(latitude), float(longitude))
 
             return 'Location set successfully'
 
@@ -1111,16 +1293,17 @@ async def stop_location():
 
             if ios_version is not None and is_major_version_17_or_greater(ios_version):
                 async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                    with DvtSecureSocketProxyService(sp_rsd) as dvt:
-                        LocationSimulation(dvt).clear()
-                        logger.warning("Location Cleared Successfully")
+                    async with DvtProvider(sp_rsd) as dvt:
+                        async with LocationSimulation(dvt) as simulation:
+                            await simulation.clear()
+                            logger.warning("Location Cleared Successfully")
                 return 'Location cleared successfully'
 
             elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-                with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
-
-                    LocationSimulation(dvt).clear()
-                    logger.warning("Location Cleared Successfully")
+                async with DvtProvider(lockdown) as dvt:
+                    async with LocationSimulation(dvt) as simulation:
+                        await simulation.clear()
+                        logger.warning("Location Cleared Successfully")
                 return 'Location cleared successfully'
         return 'Location cleared successfully'
     except Exception as e:
@@ -1150,10 +1333,9 @@ def get_github_broadcast():
     try:
         # Make a request to the GitHub API to get the content of CURRENT_VERSION file
         url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/main/{BROADCAST_FILE}'
-        logger.error(f"Github URL: {url}")
+        logger.info(f"Github URL: {url}")
 
-        response = requests.get(url, verify=False)
-        logger.error(f"github response: {response}")
+        response = requests.get(url, timeout=10)
         #response.raise_for_status()
 
         # Parse the content of the file
@@ -1378,14 +1560,49 @@ def exit_app():
     return jsonify(response)
 
 
+#========= Background remote data (fuel / version / broadcast / country) ========
+# 首页原本串行请求 4 个外网服务，弱网/代理故障时页面会卡 30 秒以上。
+# 改为后台线程预取并缓存，页面渲染只读缓存，秒开。
+REMOTE_REFRESH_INTERVAL = 1800  # seconds
+
+def refresh_remote_data():
+    """Prefetch all remote data used by the index page. Runs in a daemon thread."""
+    while True:
+        try:
+            fetch_api_data(api_url)
+        except Exception as e:
+            logger.warning(f"Fuel data refresh failed: {e}")
+        try:
+            version = get_github_version()
+            if version:
+                global _cached_github_version
+                _cached_github_version = version
+        except Exception as e:
+            logger.warning(f"Version check failed: {e}")
+        try:
+            broadcast = get_github_broadcast()
+            if broadcast:
+                global _cached_github_broadcast
+                _cached_github_broadcast = broadcast
+        except Exception as e:
+            logger.warning(f"Broadcast fetch failed: {e}")
+        try:
+            get_user_country()  # caches into _user_country_cache
+        except Exception as e:
+            logger.warning(f"Country lookup failed: {e}")
+        time.sleep(REMOTE_REFRESH_INTERVAL)
+
+_cached_github_version = None
+_cached_github_broadcast = None
+
 @app.route('/')
 def index():
     # global error_message
-    fetch_api_data(api_url)
-    # Get the GitHub version
-    github_version = get_github_version()
-    github_broadcast = get_github_broadcast()
-    user_locale = get_user_country()
+    global _cached_github_version, _cached_github_broadcast, _user_country_cache
+    # All remote data comes from the background refresh thread - never block rendering
+    github_version = _cached_github_version
+    github_broadcast = _cached_github_broadcast
+    user_locale = _user_country_cache
     logger.info(f"Country: {user_locale}")
     logger.info(f"Current platform: {platform}")
     logger.info(f"App Version = {APP_VERSION_NUMBER}")
@@ -1466,6 +1683,10 @@ if __name__ == '__main__':
 
     chosen_port = try_bind_listener_on_free_port()
 
+    # Prefetch remote data (fuel prices / update check / broadcast / country) in the
+    # background so the index page never waits on outbound network calls
+    threading.Thread(target=refresh_remote_data, daemon=True).start()
+
     # Check if --no-browser flag is provided
     if not args.no_browser:
         open_browser()
@@ -1477,7 +1698,12 @@ if __name__ == '__main__':
 
     #threading.Thread(target=open_browser).start()
 
-    app.run(debug=True, use_reloader=False, port=chosen_port, host='0.0.0.0')
+    # debug=False: Werkzeug's debugger exposes arbitrary code execution, and it
+    # must never be combined with a network-visible listener. Pass --host 0.0.0.0
+    # explicitly if LAN access to the UI is really needed.
+    # threaded=True: without it a single half-open client connection (e.g. via a
+    # system proxy) blocks the only worker and wedges the whole app.
+    app.run(debug=False, use_reloader=False, port=chosen_port, host=args.host, threaded=True)
 
 
 
