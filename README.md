@@ -21,15 +21,28 @@
 
 依赖：Python 3.10+，真机操作需要 USB 连接 iPhone/iPad（首次需配对）。
 
+### 方式一：双击启动（macOS，推荐）
+
+首次安装（一次性，两条命令装依赖 + 编译启动器）：
+
 ```bash
 git clone https://github.com/skago/geoport-cn.git
 cd geoport-cn
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+# 国内网络可加清华镜像：-i https://pypi.tuna.tsinghua.edu.cn/simple
+osacompile -o ~/Applications/GeoPort\ CN.app scripts/launcher.applescript
+```
 
-# 一键启动（首次运行自动创建虚拟环境并安装依赖）
-./start
+之后的使用就一个动作：**双击「GeoPort CN.app」**（启动台/Finder 应用程序目录，支持 Spotlight 搜索）→
+系统弹密码框（USB 设备操作需要管理员权限）→ 输密码 → 服务后台启动并自动打开浏览器。
+再次双击可选择「打开页面」或「停止服务」。手机保持 USB 连接即可。
 
-# 真机定位模拟在 macOS/Linux 下需要 root：
-sudo ./start
+### 方式二：终端启动
+
+```bash
+cd geoport-cn
+sudo ./start          # 真机定位模拟需要 root
+# 或仅看界面：./start
 ```
 
 然后浏览器打开 `http://localhost:54321`。
