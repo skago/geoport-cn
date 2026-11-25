@@ -13,10 +13,23 @@ on run
 		if theChoice is "打开页面" then
 			my openDashboard()
 		else if theChoice is "停止服务" then
+			-- 优先让服务自己优雅退出（/exit 本机接口，无需管理员密码）；
+			-- 仅当接口不可达时才回落到 pkill（此时才需要密码）
+			set thePort to my servingPort()
+			if thePort is "" then set thePort to "54321"
+			set exited to false
 			try
-				do shell script "pkill -f 'src/main.py'" with administrator privileges
-				display notification "GeoPort CN 已停止" with title "GeoPort CN"
+				do shell script "curl -s --max-time 12 -X POST http://localhost:" & thePort & "/exit -o /dev/null; sleep 2; pgrep -f 'src/main.py' >/dev/null && echo alive || echo gone"
+				if result is "gone" then set exited to true
 			end try
+			if exited then
+				display notification "GeoPort CN 已停止" with title "GeoPort CN"
+			else
+				try
+					do shell script "pkill -f 'src/main.py'" with administrator privileges
+					display notification "GeoPort CN 已停止" with title "GeoPort CN"
+				end try
+			end if
 		end if
 	else
 		-- 启动：子 shell 包裹 + 切断 stdin（do shell script 的等待语义下，

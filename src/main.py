@@ -1648,8 +1648,11 @@ def shutdown_server():
     terminate_threads()
 
 
-    # Terminate the current process
-    clear_geoport()
+    # The process terminates itself below. clear_geoport() is deliberately
+    # NOT called: it kills every process whose name contains "GeoPort",
+    # which would also terminate the "GeoPort CN" launcher app that invoked
+    # /exit (the launcher would vanish mid-dialog instead of showing the
+    # "已停止" notification).
 
     logger.error("OS Kill")
     os.kill(os.getpid(), signal.SIGINT)
