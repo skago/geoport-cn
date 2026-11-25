@@ -757,6 +757,29 @@ def _gcj2wgs(lat, lng):
 
 
 
+@app.route('/healthz')
+def healthz():
+    """轻量健康检查：前端状态徽章 / 自动重连探测用。"""
+    return jsonify({'ok': True, 'version': APP_VERSION_NUMBER})
+
+
+@app.route('/api/log')
+def api_log():
+    """服务日志尾部（本机排障自助；默认 80 行，最多 300 行）。"""
+    try:
+        lines = int(request.args.get('tail', 80))
+    except ValueError:
+        lines = 80
+    lines = max(1, min(lines, 300))
+    log_path = os.path.join(home_dir, 'GeoPort', 'logs', 'geoport-cn.log')
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            tail = f.readlines()[-lines:]
+        return jsonify({'lines': [l.rstrip() for l in tail]})
+    except OSError:
+        return jsonify({'lines': [], 'error': 'log file not available'})
+
+
 @app.route('/api/geocode')
 def api_geocode():
     """统一搜索入口：
