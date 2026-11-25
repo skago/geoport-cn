@@ -1826,13 +1826,7 @@ def refresh_remote_data():
                 _cached_github_version = version
         except Exception as e:
             logger.warning(f"Version check failed: {e}")
-        try:
-            broadcast = get_github_broadcast()
-            if broadcast:
-                global _cached_github_broadcast
-                _cached_github_broadcast = broadcast
-        except Exception as e:
-            logger.warning(f"Broadcast fetch failed: {e}")
+        # broadcast 拉取已移除（首页不再展示广播条）
         # privacy: NO periodic IP-geolocation lookups in the background loop.
         # get_user_country() stays lazy — called at most once per process
         # (initial map centering / fuel-region default) and cached.
@@ -1844,10 +1838,9 @@ _cached_github_broadcast = None
 @app.route('/')
 def index():
     # global error_message
-    global _cached_github_version, _cached_github_broadcast, _user_country_cache
+    global _cached_github_version, _user_country_cache
     # All remote data comes from the background refresh thread - never block rendering
     github_version = _cached_github_version
-    github_broadcast = _cached_github_broadcast
     user_locale = _user_country_cache
     logger.info(f"Country: {user_locale}")
     logger.info(f"Current platform: {platform}")
@@ -1857,16 +1850,18 @@ def index():
 
     #list_devices()
     # Compare with the locally hardcoded version
-    if github_version and github_version > APP_VERSION_NUMBER:
-        version_message = f"Update available. New Version is {github_version}"
+    # 统一去掉 v 前缀再比较，避免 "v5.0.3" > "5.0.3" 的假性更新提示
+    norm = lambda v: str(v).lstrip('vV') or '0'
+    if github_version and norm(github_version) > norm(APP_VERSION_NUMBER):
+        version_message = f"🔄 发现新版本 {github_version}（当前 {APP_VERSION_NUMBER}），到 GitHub Releases 下载更新"
 
-    elif github_version and github_version < APP_VERSION_NUMBER:
-        version_message = f"Beta Testing. App version is {APP_VERSION_NUMBER} - github is {github_version}"
+    elif github_version and norm(github_version) < norm(APP_VERSION_NUMBER):
+        version_message = f"🧪 当前为预览版本 {APP_VERSION_NUMBER}（线上 {github_version}）"
 
     else:
         version_message = None
 
-    return render_template('map.html', version_message=version_message, github_broadcast=github_broadcast,
+    return render_template('map.html', version_message=version_message,
                            user_locale=user_locale, app_version_num=APP_VERSION_NUMBER,
                            app_version_type=APP_VERSION_TYPE, error_message=error_message, current_platform=platform,
                            sudo_message=sudo_message)

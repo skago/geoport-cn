@@ -327,15 +327,9 @@ body.dark-mode .modal-footer button {
 <div id="serviceBanner"></div>
 <div id="logPanel"></div>
   {% if version_message %}
-        <div class="alert alert-warning" role="alert">
+        <div class="alert alert-light border" role="alert" style="font-size: 12px; padding: 6px 12px;">
             {{ version_message }}
         </div>
-    {% endif %}
-
-  {% if github_broadcast %}
-    <div class="alert alert-info" role="alert">
-        {{ github_broadcast }}
-    </div>
     {% endif %}
 
 {% if timeout_message %}
@@ -3533,8 +3527,11 @@ function continueAfterDeveloperModeRequired() {
         <div class="col-6 text-center"> <!-- Adjust the column size and add text-center class -->
             <!-- Your Buy Me A Coffee button code -->
             <p></p>
-            <a href="https://www.buymeacoffee.com/davesc63">
-                <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20beer&emoji=🍺&slug=davesc63&button_colour=FFDD00&font_colour=000000&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a beer">
+            <a href="https://ifdian.net/a/skago" target="_blank" rel="noopener"
+               style="display:inline-block;padding:8px 22px;border-radius:20px;
+                      background:#946ce6;color:#fff;text-decoration:none;
+                      font-weight:600;font-size:14px;">
+                ☕ 爱发电支持作者
             </a>
         </div>
     </div>
