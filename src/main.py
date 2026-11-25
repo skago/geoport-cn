@@ -1360,97 +1360,56 @@ async def get_network_devices():
 @app.route('/list_devices')
 def py_list_devices():
     try:
+        # pymobiledevice3 >= 11.6x is fully async: list_devices /
+        # create_using_usbmux / create_using_tcp and the wifi-connections
+        # accessors are coroutines. Collect everything inside ONE event
+        # loop run so the lockdown clients are never used across loops.
         connected_devices = {}
 
-        # Retrieve all devices
-        all_devices = list_devices()
-        #wifi_devices = None
-        #wifi_devices = asyncio.run(get_network_devices())
-        logger.info(f"\n\nRaw Devices:  {all_devices}\n")
-        #logger.info(f"\n\nWifi Devices:  {wifi_devices}\n")
+        async def _collect(connected_devices):
+            all_devices = await list_devices()
+            logger.info(f"\n\nRaw Devices:  {all_devices}\n")
 
+            if wifihost:
+                udid = args.udid
+                logger.warning(f"Wifi requested to {wifihost}")
+                logger.warning(f"udid: {udid}")
+                lockdown = await create_using_tcp(hostname=wifihost,
+                                                  identifier=udid)
+                info = lockdown.short_info
+                logger.warning(f"Wifi Short Info: {info}")
+                await lockdown.set_enable_wifi_connections(True)
+                info['wifiState'] = True
+                info['userLocale'] = get_user_country()
+                info['ConnectionType'] = 'Network'
+                connection_type = "Manual Wifi"
+                connected_devices.setdefault(
+                    udid, {}).setdefault(connection_type, []).append(info)
 
-        if wifihost:
-            udid = args.udid
-            logger.warning(f"Wifi requested to {wifihost}")
-            logger.warning(f"udid: {udid}")
-            lockdown = create_using_tcp(hostname=wifihost, identifier=udid)
+            for device in all_devices:
+                udid = device.serial
+                connection_type = device.connection_type
+                lockdown = await create_using_usbmux(
+                    udid, connection_type=connection_type, autopair=True)
+                info = lockdown.short_info
 
-            # udid = lockdown.udid
-            # print("wifi udid", udid)
-            info = lockdown.short_info
-            logger.warning(f"Wifi Short Info: {info}")
-            # Modify the info dictionary to include wifiConState
-            wifi_connection_state = lockdown.enable_wifi_connections = True
-            info['wifiState'] = wifi_connection_state
+                wifi_connection_state = await lockdown.get_enable_wifi_connections()
+                if wifi_connection_state is False:
+                    logger.info("Enabling Wifi Connections")
+                    await lockdown.set_enable_wifi_connections(True)
+                    wifi_connection_state = True
+                    logger.info("Wifi Connection State: True")
 
-            # Modify the info dictionary to include user locale
-            info['userLocale'] = get_user_country()
+                info['wifiState'] = wifi_connection_state
+                info['userLocale'] = get_user_country()
 
-            info['ConnectionType'] = 'Network'
+                if connection_type == "Network":
+                    connection_type = "Wifi"
 
-            # Substitute "Network" with "Wifi" in the connection_type
-            connection_type = "Manual Wifi"
-            # if connection_type == "Network":
-            #     connection_type = "Wifi"
+                connected_devices.setdefault(
+                    udid, {}).setdefault(connection_type, []).append(info)
 
-            # If the serial already exists in the connected_devices dictionary
-            if udid in connected_devices:
-                # If the connection_type already exists under the serial, append the device to the list
-                if connection_type in connected_devices[udid]:
-                    connected_devices[udid][connection_type].append(info)
-                # If the connection_type doesn't exist under the serial, create a new list with the device
-                else:
-                    connected_devices[udid][connection_type] = [info]
-            # If the serial is new, create a new dictionary entry with the connection_type as a list
-            else:
-                connected_devices[udid] = {connection_type: [info]}
-
-
-
-
-
-
-        # Iterate through all devices
-
-        for device in all_devices:
-            udid = device.serial
-            connection_type = device.connection_type
-
-            # Create lockdown and info variables
-            #global lockdown
-            lockdown = create_using_usbmux(udid, connection_type=connection_type, autopair=True)
-            info = lockdown.short_info
-
-
-            wifi_connection_state = lockdown.enable_wifi_connections
-
-            if wifi_connection_state == False:
-                logger.info("Enabling Wifi Connections")
-                wifi_connection_state = lockdown.enable_wifi_connections = True
-                logger.info(f"Wifi Connection State: True")
-
-            # Modify the info dictionary to include wifiConState
-            info['wifiState'] = wifi_connection_state
-
-            # Modify the info dictionary to include user locale
-            info['userLocale'] = get_user_country()
-
-            # Substitute "Network" with "Wifi" in the connection_type
-            if connection_type == "Network":
-                connection_type = "Wifi"
-
-            # If the serial already exists in the connected_devices dictionary
-            if udid in connected_devices:
-                # If the connection_type already exists under the serial, append the device to the list
-                if connection_type in connected_devices[udid]:
-                    connected_devices[udid][connection_type].append(info)
-                # If the connection_type doesn't exist under the serial, create a new list with the device
-                else:
-                    connected_devices[udid][connection_type] = [info]
-            # If the serial is new, create a new dictionary entry with the connection_type as a list
-            else:
-                connected_devices[udid] = {connection_type: [info]}
+        asyncio.run(_collect(connected_devices))
 
         logger.info(f"\n\nConnected Devices: {connected_devices}\n")
 
