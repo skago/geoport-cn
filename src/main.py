@@ -29,7 +29,7 @@ from pymobiledevice3.usbmux import list_devices
 from pymobiledevice3.cli.mounter import auto_mount
 from pymobiledevice3.lockdown import create_using_usbmux, create_using_tcp, get_mobdev2_lockdowns
 from pymobiledevice3.services.amfi import AmfiService
-from pymobiledevice3.exceptions import DeviceHasPasscodeSetError, NoDeviceConnectedError
+from pymobiledevice3.exceptions import DeviceHasPasscodeSetError, NoDeviceConnectedError, MissingValueError
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
@@ -247,10 +247,10 @@ async def start_quic_tunnel(service_provider: RemoteServiceDiscoveryService) -> 
 
 
 # Define the function to be executed in the thread
-def run_tcp_tunnel(service_provider):
+def run_tcp_tunnel(target_udid):
 
     try:
-        asyncio.run(start_tcp_tunnel(service_provider))
+        asyncio.run(start_tcp_tunnel(target_udid))
 
         logger.info("run_tun completed")
         sys.exit(0)
@@ -265,14 +265,15 @@ def run_tcp_tunnel(service_provider):
     #return
 
 # Define a function to start the tunnel thread
-def start_tcp_tunnel_thread(service_provider):
+def start_tcp_tunnel_thread(target_udid=None):
     global terminate_tunnel_thread  # Declare the global variable
     terminate_tunnel_thread = False  # Set the value of the global variable
-    thread = threading.Thread(target=run_tcp_tunnel, args=(service_provider,))
+    thread = threading.Thread(target=run_tcp_tunnel,
+                              args=(target_udid or udid,))
     thread.start()
     return
 
-async def start_tcp_tunnel(service_provider: CoreDeviceTunnelProxy) -> None:
+async def start_tcp_tunnel(target_udid: str) -> None:
 
     logger.warning("Start USB TCP tunnel")
 
@@ -280,12 +281,12 @@ async def start_tcp_tunnel(service_provider: CoreDeviceTunnelProxy) -> None:
     stop_remoted_if_required()
     #install_driver_if_required()
 
-    #service = await create_core_device_tunnel_service_using_rsd(service_provider, autopair=True)
-
-    lockdown = create_using_usbmux(udid, autopair=True)
-    #print("Lockdown for Windows: ", lockdown)
-    service = CoreDeviceTunnelProxy(lockdown)
-    #asyncio.run(tunnel_task(service, secrets=None, protocol=TunnelProtocol.TCP), debug=True)
+    # pymobiledevice3 >= 11.6x: lockdown clients are async and bound to the
+    # event loop that created them, so the tunnel thread builds its OWN
+    # client inside its OWN asyncio.run() loop (CoreDeviceTunnelProxy is
+    # constructed via the async .create() factory).
+    lockdown = await create_using_usbmux(target_udid, autopair=True)
+    service = await CoreDeviceTunnelProxy.create(lockdown)
     async with service.start_tcp_tunnel() as tunnel_result:
         logger.info(f"TCP Address: {tunnel_result.address}")
         logger.info(f"TCP Port: {tunnel_result.port}")
@@ -692,9 +693,18 @@ def check_developer_mode(udid, connection_type):
 
         logger.warning(f"Check Developer Mode")
 
-        lockdown = create_using_usbmux(udid, connection_type=connection_type, autopair=True)
+        async def _query():
+            lockdown = await create_using_usbmux(
+                udid, connection_type=connection_type, autopair=True)
+            try:
+                # pymobiledevice3 >= 11.6x dropped the developer_mode_status
+                # property; the underlying value is DeveloperStatus (absent
+                # while Developer Mode was never enabled)
+                return await lockdown.get_value(key="DeveloperStatus")
+            except MissingValueError:
+                return False
 
-        result = lockdown.developer_mode_status
+        result = asyncio.run(_query())
         logger.info(f"Developer Mode Check result:  {result}")
 
         # Check if developer mode is enabled
@@ -733,16 +743,19 @@ def enable_developer_mode(udid, connection_type):
         pass
         #return False, "No Pair Record Found. Please use a USB cable first to create a pair record"
 
-    lockdown = create_using_usbmux(
-        udid,
-        connection_type=connection_type,
-        autopair=True,
-        pairing_records_cache_folder=home)
-
+    async def _enable():
+        lockdown = await create_using_usbmux(
+            udid,
+            connection_type=connection_type,
+            autopair=True,
+            pairing_records_cache_folder=home)
+        # enable_developer_mode() reboots the device and auto-confirms the
+        # post-restart prompt (usbmux reconnect handled inside)
+        await AmfiService(lockdown).enable_developer_mode()
 
     try:
 
-        AmfiService(lockdown).enable_developer_mode()
+        asyncio.run(_enable())
         logger.info("Enable complete, mount developer image...")
         mount_developer_image()
 
@@ -914,10 +927,10 @@ def connect_usb(data):
                         return jsonify({'error': 'No Devices Found'})
 
             else:
-                global lockdown
-                lockdown = create_using_usbmux(udid, autopair=True)
-                logger.info(f"Create Lockdown {lockdown}")
-                start_tcp_tunnel_thread(lockdown)
+                # iOS 17.4+ / macOS path: the TCP tunnel thread creates its
+                # OWN async lockdown inside its own event loop (11.6x
+                # clients must not cross loops), so only pass the udid.
+                start_tcp_tunnel_thread(udid)
 
 
             #time.sleep(3)
@@ -940,10 +953,10 @@ def connect_usb(data):
             #     # Display modal to inform the user and give options
             #     return jsonify({'developer_mode_required': 'True'})
 
-            # create LockdownServiceProvider
-            #global lockdown
-            lockdown = create_using_usbmux(udid, autopair=True)
-            logger.info(f"Lockdown client = {lockdown}")
+            # pre-warm a lockdown to validate pairing (the location step
+            # creates its own inside its own loop afterwards)
+            prewarm = asyncio.run(create_using_usbmux(udid, autopair=True))
+            logger.info(f"Lockdown client = {prewarm}")
             #rsd_data = rsd_host, rsd_port
             rsd_host, rsd_port = rsd_data
 
@@ -1012,11 +1025,12 @@ def connect_wifi(data):
             rsd_data = ios_version, udid
             logger.info(f"RSD Data: {rsd_data}")
 
-            # create LockdownServiceProvider
-            global lockdown
-            lockdown = create_using_usbmux(udid, connection_type=connection_type, autopair=True)
+            # create LockdownServiceProvider (pre-warm; the location step
+            # builds its own inside its own event loop)
+            prewarm = asyncio.run(create_using_usbmux(
+                udid, connection_type=connection_type, autopair=True))
             #lockdown = create_using_tcp(wifi_address, udid)
-            logger.info(f"Lockdown client = {lockdown}")
+            logger.info(f"Lockdown client = {prewarm}")
 
             rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
 
@@ -1045,8 +1059,8 @@ async def start_wifi_tcp_tunnel() -> None:
     #         cli_install_wetest_drivers()
 
     #service = await create_core_device_tunnel_service_using_remotepairing(udid, wifi_address, wifi_port)
-    lockdown = create_using_usbmux(udid)
-    service = CoreDeviceTunnelProxy(lockdown)
+    lockdown = await create_using_usbmux(udid)
+    service = await CoreDeviceTunnelProxy.create(lockdown)
 
     async with service.start_tcp_tunnel() as tunnel_result:
         resume_remoted_if_required()
@@ -1131,11 +1145,12 @@ def run_wifi_tunnel():
 def mount_developer_image():
     try:
 
-        global lockdown
-        lockdown = create_using_usbmux(udid, autopair=True)
-        logger.info(f"mount lockdown: {lockdown}")
+        async def _mount():
+            lockdown = await create_using_usbmux(udid, autopair=True)
+            logger.info(f"mount lockdown: {lockdown}")
+            await auto_mount(lockdown)
 
-        auto_mount(lockdown)
+        asyncio.run(_mount())
 
         return 'Developer image mounted successfully'
     except Exception as e:
@@ -1171,6 +1186,9 @@ async def set_location_thread(latitude, longitude):
 
 
                 elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
+                    # build the lockdown INSIDE this loop (11.6x clients are
+                    # loop-bound; there is no shared global client anymore)
+                    lockdown = await create_using_usbmux(udid, autopair=True)
                     async with DvtProvider(lockdown) as dvt:
                         async with LocationSimulation(dvt) as simulation:
                             await simulation.clear()
@@ -1251,7 +1269,6 @@ def set_location():
             return 'Location set successfully'
 
         elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-            global lockdown
             # Split the location string into latitude and longitude
             latitude, longitude = location.split()
 
@@ -1279,7 +1296,6 @@ async def stop_location():
         global rsd_data
         global rsd_host
         global rsd_port
-        global lockdown
         global ios_version, udid, connection_type
         logger.info(f"stop set location data:  {rsd_data}")
 
@@ -1300,6 +1316,7 @@ async def stop_location():
                 return 'Location cleared successfully'
 
             elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
+                lockdown = await create_using_usbmux(udid, autopair=True)
                 async with DvtProvider(lockdown) as dvt:
                     async with LocationSimulation(dvt) as simulation:
                         await simulation.clear()
