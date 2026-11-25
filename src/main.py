@@ -480,6 +480,12 @@ def stop_tunnel_thread():
     logger.info("stop tunnel thread")
     # Set the terminate flag to True to stop the thread
     terminate_tunnel_thread = True
+    # 免 root 用户态会话同步关闭
+    try:
+        if _tunnel_session["tunnel"] is not None:
+            _run_session(_close_tunnel_session(), timeout=15)
+    except Exception as exc:
+        logger.warning(f"close userspace tunnel: {exc}")
     return jsonify("Tunnel stopped")
 
 @app.route('/api/data/<fuel_type>')
@@ -599,6 +605,78 @@ def find_favorite(data, favorite_id):
         if entry.get('id') == favorite_id:
             return entry
     return None
+
+
+#========= 用户态隧道会话（免 root，iOS 17+）=========
+# UserspaceRsdTunnel 用纯 Python TCP/IP 栈替代内核 utun——不再需要 sudo。
+# 约束：设备地址仅在本进程内可达（不能再用 host/port 重连），且 PyTCP 栈
+# 绑定单个事件循环。因此所有会话操作都跑在一个专职事件循环线程上，RSD
+# 对象全局复用。
+from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
+
+_session_loop = None
+_session_loop_lock = threading.Lock()
+_tunnel_session = {"tunnel": None, "rsd": None}
+
+
+def _get_session_loop():
+    global _session_loop
+    with _session_loop_lock:
+        if _session_loop is None or _session_loop.is_closed():
+            _session_loop = asyncio.new_event_loop()
+            threading.Thread(target=_session_loop.run_forever, daemon=True,
+                             name="rsd-session-loop").start()
+    return _session_loop
+
+
+def _submit_session(coro):
+    """把协程提交到会话循环（不等结果；异常记录到日志）。"""
+    future = asyncio.run_coroutine_threadsafe(coro, _get_session_loop())
+    future.add_done_callback(lambda f: (
+        logger.error(f"session task failed: {f.exception()}")
+        if f.exception() else None))
+    return future
+
+
+def _run_session(coro, timeout=60):
+    return asyncio.run_coroutine_threadsafe(
+        coro, _get_session_loop()).result(timeout)
+
+
+async def _open_tunnel_session(target_udid):
+    tunnel = UserspaceRsdTunnel(serial=target_udid)
+    rsd = await tunnel.aopen()
+    _tunnel_session["tunnel"] = tunnel
+    _tunnel_session["rsd"] = rsd
+    return rsd
+
+
+async def _close_tunnel_session():
+    tunnel = _tunnel_session["tunnel"]
+    _tunnel_session.update(tunnel=None, rsd=None)
+    if tunnel is not None:
+        await tunnel.aclose()
+
+
+async def _set_location_via_session(latitude, longitude):
+    """在会话循环上长持 DVT/LocationSimulation session（保持模拟）。"""
+    rsd = _tunnel_session["rsd"]
+    if rsd is None:
+        raise RuntimeError("no active userspace tunnel session")
+    async with DvtProvider(rsd) as dvt:
+        async with LocationSimulation(dvt) as simulation:
+            await simulation.set(latitude, longitude)
+            logger.warning("Location Set Successfully (userspace tunnel, no root)")
+            while not terminate_location_thread:
+                await asyncio.sleep(0.5)
+
+
+async def _clear_location_via_session():
+    rsd = _tunnel_session["rsd"]
+    async with DvtProvider(rsd) as dvt:
+        async with LocationSimulation(dvt) as simulation:
+            await simulation.clear()
+            logger.warning("Location Cleared Successfully (userspace tunnel)")
 
 
 #========= 智能搜索（高德 POI 优先，Nominatim 回落） ========
@@ -1092,11 +1170,15 @@ def connect_usb(data):
                         return jsonify({'error': 'No Devices Found'})
 
             else:
-                # iOS 17.4+ / macOS path: the TCP tunnel thread creates its
-                # OWN async lockdown inside its own event loop (11.6x
-                # clients must not cross loops), so only pass the udid.
-                start_tcp_tunnel_thread(udid)
-
+                # iOS 17.4+：免 root 用户态隧道（纯 Python TCP/IP 栈替代 utun）。
+                # 设备地址仅本进程内可达——RSD 会话全局复用，不再用 host/port。
+                try:
+                    _run_session(_open_tunnel_session(udid), timeout=90)
+                    rsd_host, rsd_port = "userspace-tunnel", "in-process"
+                    logger.info("Userspace RSD tunnel established (no root needed)")
+                except Exception as exc:
+                    logger.error(f"userspace tunnel failed: {exc}")
+                    return jsonify({'error': f'隧道建立失败: {exc}'})
 
             #time.sleep(3)
             if not check_rsd_data():
@@ -1340,11 +1422,18 @@ async def set_location_thread(latitude, longitude):
 
 
                 if ios_version is not None and is_major_version_17_or_greater(ios_version):
-                    async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                        async with DvtProvider(sp_rsd) as dvt:
-                            async with LocationSimulation(dvt) as simulation:
-                                await simulation.set(float(latitude), float(longitude))
-                                logger.warning("Location Set Successfully")
+                    if _tunnel_session["rsd"] is not None:
+                        # 免 root 会话路径：模拟长持在会话循环上，本线程跟随停止标志
+                        _submit_session(_set_location_via_session(
+                            float(latitude), float(longitude)))
+                        while not terminate_location_thread:
+                            await asyncio.sleep(0.5)
+                    else:
+                        async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
+                            async with DvtProvider(sp_rsd) as dvt:
+                                async with LocationSimulation(dvt) as simulation:
+                                    await simulation.set(float(latitude), float(longitude))
+                                    logger.warning("Location Set Successfully")
                                 #OSUTILS.wait_return()
                                 while not terminate_location_thread:
                                     await asyncio.sleep(0.5)
@@ -1473,6 +1562,10 @@ async def stop_location():
                 rsd_port = rsd_data['port']
 
             if ios_version is not None and is_major_version_17_or_greater(ios_version):
+                if _tunnel_session["rsd"] is not None:
+                    # 免 root 会话路径：在会话循环上另开 DVT session 清除
+                    _run_session(_clear_location_via_session(), timeout=30)
+                    return 'Location cleared successfully'
                 async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
                     async with DvtProvider(sp_rsd) as dvt:
                         async with LocationSimulation(dvt) as simulation:

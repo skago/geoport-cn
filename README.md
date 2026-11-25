@@ -33,16 +33,15 @@ cd geoport-cn
 
 ### 日常使用（只有一个动作）
 
-**双击「GeoPort CN.app」**（启动台 / Spotlight 搜 "GeoPort"）→ 系统弹密码框
-（USB 设备操作需要管理员权限）→ 输密码 → 服务后台启动，浏览器自动打开。
+**双击「GeoPort CN.app」**（启动台 / Spotlight 搜 "GeoPort"）→ 服务后台启动，
+浏览器自动打开——**全程无需密码**（iOS 17+ 走免 root 的用户态隧道）。
 再次双击可选择「打开页面」或「停止服务」。手机保持 USB 连接。
 
 ### 终端方式（调试用）
 
 ```bash
 cd geoport-cn
-sudo ./start          # 真机定位模拟需要 root
-# 或仅看界面：./start
+./start               # iOS 17+ 无需 sudo（用户态隧道）
 ```
 
 然后浏览器打开 `http://localhost:54321`。

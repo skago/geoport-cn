@@ -1,5 +1,5 @@
 -- GeoPort CN launcher: double-click app experience
---   not running     -> system password prompt, start in background, open browser
+--   not running     -> start in background (no password needed), open browser
 --   already running -> choose: open page / stop service / open log
 -- Logs live at ~/GeoPort/logs/geoport-cn.log (persists across reboots).
 property appDir : "/Users/user/www.github.com/geoport-cn"
@@ -35,7 +35,7 @@ on run
 		-- 启动：子 shell 包裹 + 切断 stdin（do shell script 的等待语义下，
 		-- 直接 `cmd &` 会把 AppleScript 卡死，此结构已实测立即返回）
 		try
-			do shell script "mkdir -p /Users/user/GeoPort/logs && cd " & quoted form of appDir & " && ( ./.venv/bin/python src/main.py --no-browser > " & quoted form of logFile & " 2>&1 < /dev/null & ) ; echo launched" with administrator privileges
+			do shell script "mkdir -p /Users/user/GeoPort/logs && cd " & quoted form of appDir & " && ( ./.venv/bin/python src/main.py --no-browser > " & quoted form of logFile & " 2>&1 < /dev/null & ) ; echo launched"
 		on error errMsg
 			display dialog "启动失败：" & errMsg & return & return & "日志：" & logFile buttons {"好"} with icon stop
 			return
