@@ -72,9 +72,16 @@ python3 -m venv .venv
 
 ## ☕ 支持这个项目
 
-如果增强版对你有帮助，欢迎请作者喝杯咖啡：
+GeoPort CN 完全免费开源。如果它帮到了你，欢迎请作者喝杯咖啡：
 
-<!-- TODO: 替换成你的 Buy Me a Coffee / 爱发电链接 -->
-[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=☕&slug=YOUR_BMC_USERNAME&button_colour=FFDD00&font_colour=000000&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/YOUR_BMC_USERNAME)
+> 🍜 **[去爱发电支持 →](https://ifdian.net/a/skago)**
+>
+> 只想一次性支持？用爱发电页面的「自定义金额」入口即可，或赞助后随时取消，都不会有后续扣款压力。
+
+### ⭐ 感谢名单
+
+感谢以下支持者让 GeoPort CN 持续更新（按赞助时间排序）：
+
+- 等待第一位支持者 —— 会是你吗？
 
 也欢迎支持上游原作者 [davesc63](https://www.buymeacoffee.com/davesc63) —— 没有他的 GeoPort，就没有这个项目。
