@@ -8,7 +8,7 @@
 [![Stars](https://img.shields.io/github/stars/skago/geoport-cn?style=flat-square)](https://github.com/skago/geoport-cn/stargazers)
 [![License](https://img.shields.io/github/license/skago/geoport-cn?style=flat-square&label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](LICENSE)
 
-![GeoPort CN 界面：中文操作 + 高德地图 + 搜索候选](docs/screenshots/overview.png)
+![GeoPort CN 演示：Wi-Fi 连接设备 → 切换高德卫星 → 搜索天安门 → 候选面板 → 一键模拟](docs/screenshots/demo.gif)
 
 **面向国内网络环境优化，开箱即用**：默认高德地图底图、依赖安装走国内镜像、外网请求全部后台化不阻塞界面。在原版基础上，GeoPort CN 面向**中文用户 / 国内网络环境**，新增了国内地图源（含坐标纠偏）、历史记录与收藏等功能，并做了一系列安全与稳定性修复。
 
