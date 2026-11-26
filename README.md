@@ -3,6 +3,13 @@
 > 基于 [davesc63/GeoPort](https://github.com/davesc63/GeoPort) 的国内优化版：无需越狱的 iOS 定位模拟工具。
 > Your Location, Anywhere!
 
+[![Release](https://img.shields.io/github/v/release/skago/geoport-cn?style=flat-square&label=%E5%8F%91%E5%B8%83%E7%89%88%E6%9C%AC)](https://github.com/skago/geoport-cn/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/skago/geoport-cn/total.svg?style=flat-square&label=%E4%B8%8B%E8%BD%BD%E9%87%8F)](https://github.com/skago/geoport-cn/releases/latest)
+[![Stars](https://img.shields.io/github/stars/skago/geoport-cn?style=flat-square)](https://github.com/skago/geoport-cn/stargazers)
+[![License](https://img.shields.io/github/license/skago/geoport-cn?style=flat-square&label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](LICENSE)
+
+![GeoPort CN 界面：中文操作 + 高德地图 + 搜索候选](docs/screenshots/overview.png)
+
 **面向国内网络环境优化，开箱即用**：默认高德地图底图、依赖安装走国内镜像、外网请求全部后台化不阻塞界面。在原版基础上，GeoPort CN 面向**中文用户 / 国内网络环境**，新增了国内地图源（含坐标纠偏）、历史记录与收藏等功能，并做了一系列安全与稳定性修复。
 
 ## ✨ 相对上游的新特性
