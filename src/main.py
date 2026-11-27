@@ -616,7 +616,8 @@ from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
 
 _session_loop = None
 _session_loop_lock = threading.Lock()
-_tunnel_session = {"tunnel": None, "rsd": None}
+_tunnel_session = {"tunnel": None, "rsd": None,
+                  "dvt": None, "simulation": None}
 
 
 def _get_session_loop():
@@ -644,6 +645,10 @@ def _run_session(coro, timeout=60):
 
 
 async def _open_tunnel_session(target_udid):
+    # 已有旧会话（例如手机重连 Wi-Fi 后重新连接）先关闭，避免
+    # PyTCP 栈的"每进程一条隧道"限制报错
+    if _tunnel_session["tunnel"] is not None:
+        await _close_tunnel_session()
     tunnel = UserspaceRsdTunnel(serial=target_udid)
     rsd = await tunnel.aopen()
     _tunnel_session["tunnel"] = tunnel
@@ -651,32 +656,74 @@ async def _open_tunnel_session(target_udid):
     return rsd
 
 
+async def _close_sim_session():
+    sim = _tunnel_session.get("simulation")
+    dvt = _tunnel_session.get("dvt")
+    _tunnel_session.update(simulation=None, dvt=None)
+    if sim is not None:
+        try:
+            await sim.__aexit__(None, None, None)
+        except Exception as exc:
+            logger.warning(f"close simulation: {exc}")
+    if dvt is not None:
+        try:
+            await dvt.__aexit__(None, None, None)
+        except Exception as exc:
+            logger.warning(f"close dvt: {exc}")
+
+
 async def _close_tunnel_session():
+    await _close_sim_session()
     tunnel = _tunnel_session["tunnel"]
     _tunnel_session.update(tunnel=None, rsd=None)
     if tunnel is not None:
         await tunnel.aclose()
 
 
-async def _set_location_via_session(latitude, longitude):
-    """在会话循环上长持 DVT/LocationSimulation session（保持模拟）。"""
-    rsd = _tunnel_session["rsd"]
-    if rsd is None:
-        raise RuntimeError("no active userspace tunnel session")
-    async with DvtProvider(rsd) as dvt:
-        async with LocationSimulation(dvt) as simulation:
-            await simulation.set(latitude, longitude)
-            logger.warning("Location Set Successfully (userspace tunnel, no root)")
-            while not terminate_location_thread:
-                await asyncio.sleep(0.5)
+async def _ensure_sim_session():
+    """打开持久 DVT/LocationSimulation 会话（保持模拟必须长持连接，
+    与官方 CLI 的 async-with 模式一致）。"""
+    if _tunnel_session["simulation"] is None:
+        rsd = _tunnel_session["rsd"]
+        if rsd is None:
+            raise RuntimeError("no active userspace tunnel session")
+        dvt = DvtProvider(rsd)
+        await dvt.__aenter__()
+        try:
+            simulation = LocationSimulation(dvt)
+            await simulation.__aenter__()
+        except Exception:
+            await dvt.__aexit__(None, None, None)
+            raise
+        _tunnel_session["dvt"] = dvt
+        _tunnel_session["simulation"] = simulation
 
 
-async def _clear_location_via_session():
-    rsd = _tunnel_session["rsd"]
-    async with DvtProvider(rsd) as dvt:
-        async with LocationSimulation(dvt) as simulation:
-            await simulation.clear()
-            logger.warning("Location Cleared Successfully (userspace tunnel)")
+async def _session_set_location(latitude, longitude):
+    """设置模拟定位并等待真实结果——失败（隧道断开等）向上抛错，
+    路由层据此返回明确错误，而不是假成功。"""
+    try:
+        await _ensure_sim_session()
+        await _tunnel_session["simulation"].set(latitude, longitude)
+        logger.warning(f"Location Set Successfully ({latitude}, {longitude}) "
+                       f"(userspace tunnel, no root)")
+    except Exception:
+        # 会话可能已失效：丢弃句柄，下次设置时重建
+        try:
+            await _close_sim_session()
+        except Exception:
+            pass
+        raise
+
+
+async def _session_clear_location():
+    if _tunnel_session["simulation"] is None:
+        return  # 本来就没有进行中的模拟
+    try:
+        await _tunnel_session["simulation"].clear()
+        logger.warning("Location Cleared Successfully (userspace tunnel)")
+    finally:
+        await _close_sim_session()
 
 
 #========= 智能搜索（高德 POI 优先，Nominatim 回落） ========
@@ -1432,12 +1479,8 @@ async def set_location_thread(latitude, longitude):
 
 
                 if ios_version is not None and is_major_version_17_or_greater(ios_version):
-                    if _tunnel_session["rsd"] is not None:
-                        # 免 root 会话路径：模拟长持在会话循环上，本线程跟随停止标志
-                        _submit_session(_set_location_via_session(
-                            float(latitude), float(longitude)))
-                        while not terminate_location_thread:
-                            await asyncio.sleep(0.5)
+                    if False:
+                        pass  # 会话路径已迁移至 /set_location 路由同步处理
                     else:
                         async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
                             async with DvtProvider(sp_rsd) as dvt:
@@ -1525,7 +1568,29 @@ def set_location():
             # Split the location string into latitude and longitude
             latitude, longitude = location.split()
 
-            #asyncio.run(set_location_thread(latitude, longitude))
+            if _tunnel_session["rsd"] is not None:
+                # 免 root 会话路径：同步等待真实设置结果。
+                # 隧道断开（手机锁屏/Wi-Fi 切换）会立刻返回明确错误，绝不假成功。
+                try:
+                    _run_session(_session_set_location(
+                        float(latitude), float(longitude)), timeout=45)
+                except Exception as exc:
+                    msg = str(exc)
+                    logger.error(f"set_location failed: {msg}")
+                    low = msg.lower()
+                    if any(k in low for k in ("reset", "closed", "tunnel",
+                                              "unreachable", "no route",
+                                              "broken pipe")):
+                        hint = ("模拟失败：与手机的连接已断开"
+                                "（手机锁屏或切换了网络）。"
+                                "请重新点「连接设备」后再试")
+                    else:
+                        hint = f"模拟失败：{msg}"
+                    return jsonify({'error': hint}), 502
+                record_location_history(float(latitude), float(longitude))
+                return '模拟定位成功，手机定位已更新'
+
+            # 非会话路径：维持原线程行为
             start_set_location_thread(latitude, longitude)
 
             record_location_history(float(latitude), float(longitude))
@@ -1574,8 +1639,8 @@ async def stop_location():
             if ios_version is not None and is_major_version_17_or_greater(ios_version):
                 if _tunnel_session["rsd"] is not None:
                     # 免 root 会话路径：在会话循环上另开 DVT session 清除
-                    _run_session(_clear_location_via_session(), timeout=30)
-                    return 'Location cleared successfully'
+                    _run_session(_session_clear_location(), timeout=30)
+                    return '模拟已停止，手机定位已恢复'
                 async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
                     async with DvtProvider(sp_rsd) as dvt:
                         async with LocationSimulation(dvt) as simulation:

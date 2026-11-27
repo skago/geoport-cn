@@ -2949,17 +2949,23 @@ function setLocationArrows() {
             },
             body: JSON.stringify({}),
         })
-            .then(response => response.text())
-            .then(data => {
-                displayToast(data); // Display response as a toast
-                console.log('set_location response:', data);
-                refreshSavedLocations(); // 成功模拟后刷新历史记录
-                simulating = true;
+            .then(async response => {
+                const text = await response.text();
+                displayToast(text);
+                console.log('set_location response:', text);
                 var btn = document.getElementById('set-location');
-                if (btn) { btn.textContent = '模拟中…'; btn.disabled = true; }
+                if (response.ok) {
+                    simulating = true;
+                    refreshSavedLocations(); // 成功模拟后刷新历史记录
+                    if (btn) { btn.textContent = '模拟中…'; btn.disabled = true; }
+                } else if (btn) {
+                    btn.textContent = '模拟定位';
+                    btn.disabled = false;
+                }
             })
             .catch(error => {
                 console.error('Error setting location:', error);
+                displayToast('模拟请求失败：服务未响应，请确认 GeoPort CN 正在运行');
             });
     }
 
